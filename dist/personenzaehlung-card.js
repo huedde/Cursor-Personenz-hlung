@@ -6,7 +6,7 @@
  * Visueller Editor mit CSS-Anpassungen und Entity-Auswahl
  */
 
-const CARD_VERSION = "1.3.0";
+const CARD_VERSION = "1.4.0";
 
 // ============================================================
 // EDITOR (Visueller Konfigurations-Editor)
@@ -622,7 +622,7 @@ customElements.define(
 );
 
 // ============================================================
-// LOCALSTORAGE HELPER
+// LOCALSTORAGE HELPER (mit Impulszählung für Binärsensoren)
 // ============================================================
 class PersonenStorage {
   constructor(storageKey) {
@@ -657,10 +657,8 @@ class PersonenStorage {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   }
 
-  update(kommen, gehen) {
-    const data = this._getData() || {};
+  _ensureToday(data) {
     const todayKey = this._todayKey();
-
     if (data.currentDay && data.currentDay !== todayKey) {
       data.yesterday = {
         kommen: data.todayKommen || 0,
@@ -669,33 +667,64 @@ class PersonenStorage {
       };
       data.todayKommen = 0;
       data.todayGehen = 0;
+      data.lastStateKommen = null;
+      data.lastStateGehen = null;
     }
-
     data.currentDay = todayKey;
+    if (data.todayKommen === undefined) data.todayKommen = 0;
+    if (data.todayGehen === undefined) data.todayGehen = 0;
+    return data;
+  }
+
+  incrementKommen() {
+    const data = this._ensureToday(this._getData() || {});
+    data.todayKommen = (data.todayKommen || 0) + 1;
+    this._setData(data);
+    return data.todayKommen;
+  }
+
+  incrementGehen() {
+    const data = this._ensureToday(this._getData() || {});
+    data.todayGehen = (data.todayGehen || 0) + 1;
+    this._setData(data);
+    return data.todayGehen;
+  }
+
+  setDirectValues(kommen, gehen) {
+    const data = this._ensureToday(this._getData() || {});
     data.todayKommen = kommen;
     data.todayGehen = gehen;
-
-    if (!data.yesterday) {
-      data.yesterday = null;
-    }
-
     this._setData(data);
-    return data;
+  }
+
+  getTodayValues() {
+    const data = this._ensureToday(this._getData() || {});
+    this._setData(data);
+    return { kommen: data.todayKommen || 0, gehen: data.todayGehen || 0 };
+  }
+
+  getLastStates() {
+    const data = this._getData() || {};
+    return {
+      kommen: data.lastStateKommen !== undefined ? data.lastStateKommen : null,
+      gehen: data.lastStateGehen !== undefined ? data.lastStateGehen : null,
+    };
+  }
+
+  setLastStates(kommenState, gehenState) {
+    const data = this._ensureToday(this._getData() || {});
+    data.lastStateKommen = kommenState;
+    data.lastStateGehen = gehenState;
+    this._setData(data);
   }
 
   getYesterday() {
     const data = this._getData();
     if (!data || !data.yesterday) return { kommen: null, gehen: null };
-
     const expectedYesterday = this._yesterdayKey();
-
     if (data.yesterday.date === expectedYesterday) {
-      return {
-        kommen: data.yesterday.kommen,
-        gehen: data.yesterday.gehen,
-      };
+      return { kommen: data.yesterday.kommen, gehen: data.yesterday.gehen };
     }
-
     return { kommen: null, gehen: null };
   }
 }
@@ -707,11 +736,13 @@ class PersonenzaehlungCard extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: "open" });
-    this._lastKommen = null;
-    this._lastGehen = null;
+    this._lastDisplayKommen = null;
+    this._lastDisplayGehen = null;
     this._storage = null;
     this._domBuilt = false;
     this._els = {};
+    this._prevBinaryKommen = null;
+    this._prevBinaryGehen = null;
   }
 
   static getConfigElement() {
@@ -815,11 +846,91 @@ class PersonenzaehlungCard extends HTMLElement {
     }
   }
 
+  _isBinarySensor(entityId) {
+    return entityId && entityId.startsWith("binary_sensor.");
+  }
+
+  _getRawState(entityId) {
+    if (!entityId || !this._hass || !this._hass.states[entityId]) return null;
+    return this._hass.states[entityId].state;
+  }
+
+  _isBinaryOn(state) {
+    if (state === null || state === undefined) return false;
+    const s = String(state).toLowerCase();
+    return s === "on" || s === "1" || s === "true";
+  }
+
   _getEntityValue(entityId) {
     if (!entityId || !this._hass || !this._hass.states[entityId]) return 0;
     const state = this._hass.states[entityId].state;
     const val = parseFloat(state);
     return isNaN(val) ? 0 : val;
+  }
+
+  _processPulses() {
+    if (!this._storage || !this._hass || !this._config) return;
+    const c = this._config;
+    const isBinaryK = this._isBinarySensor(c.entity_kommen);
+    const isBinaryG = this._isBinarySensor(c.entity_gehen);
+
+    if (!isBinaryK && !isBinaryG) return;
+
+    const saved = this._storage.getLastStates();
+
+    if (isBinaryK) {
+      const currentK = this._getRawState(c.entity_kommen);
+      const wasOn = this._isBinaryOn(this._prevBinaryKommen !== null ? this._prevBinaryKommen : saved.kommen);
+      const isOn = this._isBinaryOn(currentK);
+      if (!wasOn && isOn) {
+        this._storage.incrementKommen();
+      }
+      this._prevBinaryKommen = currentK;
+    }
+
+    if (isBinaryG) {
+      const currentG = this._getRawState(c.entity_gehen);
+      const wasOn = this._isBinaryOn(this._prevBinaryGehen !== null ? this._prevBinaryGehen : saved.gehen);
+      const isOn = this._isBinaryOn(currentG);
+      if (!wasOn && isOn) {
+        this._storage.incrementGehen();
+      }
+      this._prevBinaryGehen = currentG;
+    }
+
+    this._storage.setLastStates(
+      this._prevBinaryKommen,
+      this._prevBinaryGehen
+    );
+  }
+
+  _getCurrentValues() {
+    const c = this._config;
+    const isBinaryK = this._isBinarySensor(c.entity_kommen);
+    const isBinaryG = this._isBinarySensor(c.entity_gehen);
+
+    let kommen, gehen;
+
+    if (isBinaryK || isBinaryG) {
+      const today = this._storage ? this._storage.getTodayValues() : { kommen: 0, gehen: 0 };
+      kommen = isBinaryK ? today.kommen : this._getEntityValue(c.entity_kommen);
+      gehen = isBinaryG ? today.gehen : this._getEntityValue(c.entity_gehen);
+
+      if (!isBinaryK && this._storage) {
+        this._storage.setDirectValues(kommen, today.gehen);
+      }
+      if (!isBinaryG && this._storage) {
+        this._storage.setDirectValues(today.kommen, gehen);
+      }
+    } else {
+      kommen = this._getEntityValue(c.entity_kommen);
+      gehen = this._getEntityValue(c.entity_gehen);
+      if (this._storage && c.yesterday_mode === "localstorage") {
+        this._storage.setDirectValues(kommen, gehen);
+      }
+    }
+
+    return { kommen, gehen };
   }
 
   _getYesterdayValues() {
@@ -1112,13 +1223,12 @@ class PersonenzaehlungCard extends HTMLElement {
     if (!this._hass || !this._config || !this._domBuilt) return;
     const c = this._config;
 
-    const kommen = this._getEntityValue(c.entity_kommen);
-    const gehen = this._getEntityValue(c.entity_gehen);
-    const net = kommen - gehen;
+    this._processPulses();
 
-    if (this._storage && c.yesterday_mode === "localstorage") {
-      this._storage.update(kommen, gehen);
-    }
+    const vals = this._getCurrentValues();
+    const kommen = vals.kommen;
+    const gehen = vals.gehen;
+    const net = kommen - gehen;
 
     const yData = this._getYesterdayValues();
     const yKommen = yData.kommen;
@@ -1131,8 +1241,8 @@ class PersonenzaehlungCard extends HTMLElement {
     const pctK = this._getPercentChange(kommen, yKommen);
     const pctG = this._getPercentChange(gehen, yGehen);
 
-    const kommenChanged = this._lastKommen !== null && this._lastKommen !== kommen;
-    const gehenChanged = this._lastGehen !== null && this._lastGehen !== gehen;
+    const kommenChanged = this._lastDisplayKommen !== null && this._lastDisplayKommen !== kommen;
+    const gehenChanged = this._lastDisplayGehen !== null && this._lastDisplayGehen !== gehen;
 
     this._setText("val-kommen", kommen);
     this._setText("val-gehen", gehen);
@@ -1140,8 +1250,8 @@ class PersonenzaehlungCard extends HTMLElement {
     if (c.animate_change && kommenChanged) this._triggerAnimation("val-kommen");
     if (c.animate_change && gehenChanged) this._triggerAnimation("val-gehen");
 
-    this._lastKommen = kommen;
-    this._lastGehen = gehen;
+    this._lastDisplayKommen = kommen;
+    this._lastDisplayGehen = gehen;
 
     if (c.show_comparison && yKommen !== null) {
       this._setHTML("trend-kommen",

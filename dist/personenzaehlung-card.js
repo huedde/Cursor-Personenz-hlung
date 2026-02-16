@@ -6,7 +6,7 @@
  * Visueller Editor mit CSS-Anpassungen und Entity-Auswahl
  */
 
-const CARD_VERSION = "1.1.0";
+const CARD_VERSION = "1.2.0";
 
 // ============================================================
 // EDITOR (Visueller Konfigurations-Editor)
@@ -617,7 +617,7 @@ class PersonenStorage {
 }
 
 // ============================================================
-// HAUPTKARTE
+// HAUPTKARTE (Build-Once / Update-Only — kein Flackern)
 // ============================================================
 class PersonenzaehlungCard extends HTMLElement {
   constructor() {
@@ -626,6 +626,8 @@ class PersonenzaehlungCard extends HTMLElement {
     this._lastKommen = null;
     this._lastGehen = null;
     this._storage = null;
+    this._domBuilt = false;
+    this._els = {};
   }
 
   static getConfigElement() {
@@ -661,8 +663,33 @@ class PersonenzaehlungCard extends HTMLElement {
   }
 
   set hass(hass) {
+    const oldHass = this._hass;
     this._hass = hass;
-    this._render();
+
+    if (!this._config) return;
+
+    const relevantEntities = [
+      this._config.entity_kommen,
+      this._config.entity_gehen,
+      this._config.entity_yesterday_kommen,
+      this._config.entity_yesterday_gehen,
+    ].filter(Boolean);
+
+    if (oldHass && this._domBuilt) {
+      let changed = false;
+      for (const eid of relevantEntities) {
+        if (oldHass.states[eid] !== hass.states[eid]) {
+          changed = true;
+          break;
+        }
+      }
+      if (!changed) return;
+    }
+
+    if (!this._domBuilt) {
+      this._buildDOM();
+    }
+    this._updateValues();
   }
 
   setConfig(config) {
@@ -694,6 +721,12 @@ class PersonenzaehlungCard extends HTMLElement {
 
     const storageId = (config.entity_kommen || "default") + "_" + (config.entity_gehen || "default");
     this._storage = new PersonenStorage(storageId.replace(/[^a-zA-Z0-9_]/g, "_"));
+
+    this._domBuilt = false;
+    if (this._hass) {
+      this._buildDOM();
+      this._updateValues();
+    }
   }
 
   _getEntityValue(entityId) {
@@ -705,30 +738,20 @@ class PersonenzaehlungCard extends HTMLElement {
 
   _getYesterdayValues() {
     const c = this._config;
-
     if (c.yesterday_mode === "entities") {
-      const yk = c.entity_yesterday_kommen
-        ? this._getEntityValue(c.entity_yesterday_kommen)
-        : null;
-      const yg = c.entity_yesterday_gehen
-        ? this._getEntityValue(c.entity_yesterday_gehen)
-        : null;
+      const yk = c.entity_yesterday_kommen ? this._getEntityValue(c.entity_yesterday_kommen) : null;
+      const yg = c.entity_yesterday_gehen ? this._getEntityValue(c.entity_yesterday_gehen) : null;
       return { kommen: yk, gehen: yg };
     }
-
-    if (this._storage) {
-      return this._storage.getYesterday();
-    }
-
+    if (this._storage) return this._storage.getYesterday();
     return { kommen: null, gehen: null };
   }
 
   _getTrendIcon(current, previous) {
-    if (previous === null || previous === undefined)
-      return { icon: "\u2014", class: "neutral" };
-    if (current > previous) return { icon: "\u25B2", class: "up" };
-    if (current < previous) return { icon: "\u25BC", class: "down" };
-    return { icon: "\u25CF", class: "neutral" };
+    if (previous === null || previous === undefined) return { icon: "\u2014", cls: "neutral" };
+    if (current > previous) return { icon: "\u25B2", cls: "up" };
+    if (current < previous) return { icon: "\u25BC", cls: "down" };
+    return { icon: "\u25CF", cls: "neutral" };
   }
 
   _getPercentChange(current, previous) {
@@ -741,8 +764,264 @@ class PersonenzaehlungCard extends HTMLElement {
     return `${sign}${pct.toFixed(0)}%`;
   }
 
-  _render() {
-    if (!this._hass || !this._config) return;
+  _buildDOM() {
+    const c = this._config;
+    const now = new Date();
+    const todayStr = now.toLocaleDateString("de-DE", { weekday: "long", day: "2-digit", month: "2-digit", year: "numeric" });
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayStr = yesterday.toLocaleDateString("de-DE", { weekday: "long", day: "2-digit", month: "2-digit", year: "numeric" });
+    const modeLabel = c.yesterday_mode === "entities" ? "HA-Helper" : "auto";
+
+    this.shadowRoot.innerHTML = `
+      <style>
+        :host { display: block; }
+        @keyframes pulse {
+          0% { transform: scale(1); }
+          50% { transform: scale(1.15); }
+          100% { transform: scale(1); }
+        }
+        @keyframes countUp {
+          0% { opacity: 0.6; transform: scale(0.92); }
+          50% { transform: scale(1.1); }
+          100% { opacity: 1; transform: scale(1); }
+        }
+        .card {
+          background: ${c.bg_color};
+          color: ${c.text_color};
+          border-radius: ${c.border_radius}px;
+          padding: 20px;
+          font-family: 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+          box-shadow: 0 2px 12px rgba(0,0,0,0.3);
+        }
+        .card-header { margin-bottom: 16px; }
+        .card-title {
+          font-size: ${c.font_size_title}px;
+          font-weight: 600;
+          display: flex; align-items: center; gap: 8px;
+          margin-bottom: 4px;
+        }
+        .card-title .icon { font-size: ${c.font_size_title + 2}px; opacity: 0.8; }
+        .card-subtitle {
+          font-size: ${Math.max(c.font_size_title - 3, 11)}px;
+          opacity: 0.7;
+          display: flex; align-items: center; gap: 6px;
+        }
+        .section-label {
+          font-size: 13px; font-weight: 600;
+          text-transform: uppercase; letter-spacing: 0.8px;
+          opacity: 0.6; margin-bottom: 10px;
+          display: flex; align-items: center; gap: 6px;
+        }
+        .section-label .dot {
+          width: 8px; height: 8px; border-radius: 50%;
+          background: ${c.color_kommen};
+          animation: pulse 2s infinite;
+        }
+        .counters-grid {
+          display: grid; grid-template-columns: 1fr 1fr;
+          gap: 12px; margin-bottom: 16px;
+        }
+        .counter-box {
+          background: ${c.counter_bg};
+          border-radius: ${c.counter_radius}px;
+          padding: 16px; text-align: center;
+          border: 1px solid rgba(255,255,255,0.06);
+          transition: transform 0.2s, box-shadow 0.2s;
+          cursor: default;
+        }
+        .counter-box:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+        }
+        .counter-icon { font-size: 22px; margin-bottom: 6px; }
+        .counter-label { font-size: 13px; font-weight: 500; margin-bottom: 4px; opacity: 0.8; }
+        .counter-value {
+          font-size: ${c.font_size_counter}px;
+          font-weight: 700; line-height: 1.1;
+          font-variant-numeric: tabular-nums;
+          transition: color 0.3s;
+        }
+        .counter-value.kommen { color: ${c.color_kommen}; }
+        .counter-value.gehen { color: ${c.color_gehen}; }
+        .counter-value.animate { animation: countUp 0.4s ease; }
+        .counter-trend {
+          font-size: 12px; margin-top: 6px; opacity: 0.7;
+          display: flex; align-items: center; justify-content: center; gap: 4px;
+          min-height: 18px;
+        }
+        .trend-icon.up { color: ${c.color_trend_up}; }
+        .trend-icon.down { color: ${c.color_trend_down}; }
+        .trend-icon.neutral { color: ${c.text_color}; opacity: 0.5; }
+        .net-display {
+          background: ${c.counter_bg};
+          border-radius: ${c.counter_radius}px;
+          padding: 12px 16px;
+          display: flex; align-items: center; justify-content: space-between;
+          margin-bottom: 16px;
+          border: 1px solid rgba(255,255,255,0.06);
+        }
+        .net-label {
+          font-size: 13px; font-weight: 500; opacity: 0.8;
+          display: flex; align-items: center; gap: 6px;
+        }
+        .net-value {
+          font-size: ${Math.max(c.font_size_counter - 6, 18)}px;
+          font-weight: 700; font-variant-numeric: tabular-nums;
+          transition: color 0.3s;
+        }
+        .net-positive { color: ${c.color_kommen}; }
+        .net-negative { color: ${c.color_gehen}; }
+        .net-zero { opacity: 0.5; }
+        .yesterday-section {
+          border-top: 1px solid rgba(255,255,255,0.08);
+          padding-top: 14px; margin-top: 4px;
+        }
+        .yesterday-grid {
+          display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+        }
+        .yesterday-box {
+          background: rgba(255,255,255,0.03);
+          border-radius: ${c.counter_radius}px;
+          padding: 12px; text-align: center;
+          border: 1px dashed rgba(255,255,255,0.08);
+        }
+        .yesterday-label {
+          font-size: 11px; opacity: 0.5; margin-bottom: 4px;
+          text-transform: uppercase; letter-spacing: 0.5px;
+        }
+        .yesterday-value {
+          font-size: ${Math.max(c.font_size_counter - 10, 16)}px;
+          font-weight: 600; font-variant-numeric: tabular-nums; opacity: 0.6;
+        }
+        .yesterday-value.kommen { color: ${c.color_kommen}; }
+        .yesterday-value.gehen  { color: ${c.color_gehen}; }
+        .comparison-row {
+          display: flex; align-items: center; justify-content: center;
+          gap: 16px; margin-top: 10px; padding: 8px 12px;
+          background: rgba(255,255,255,0.03); border-radius: 8px;
+        }
+        .comparison-item {
+          display: flex; align-items: center; gap: 4px;
+          font-size: 12px; opacity: 0.7;
+        }
+        .comparison-item .trend-icon { font-size: 11px; }
+        .storage-badge {
+          display: inline-block; font-size: 10px; opacity: 0.35;
+          background: rgba(255,255,255,0.08);
+          padding: 2px 6px; border-radius: 4px; margin-left: 8px;
+          font-weight: 400; text-transform: none; letter-spacing: 0;
+        }
+        .no-data-hint {
+          text-align: center; font-size: 12px; opacity: 0.4;
+          padding: 8px; font-style: italic;
+        }
+        .hidden { display: none !important; }
+        ${c.custom_css || ""}
+      </style>
+      <ha-card>
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">
+              <span class="icon">\uD83D\uDEAA</span>
+              <span data-id="title">${c.card_title}</span>
+            </div>
+            <div class="card-subtitle">
+              <span>\uD83D\uDC65</span> <span data-id="subtitle">${c.card_subtitle}</span>
+            </div>
+          </div>
+          <div class="section-label">
+            <span class="dot"></span>
+            Heute \u2014 ${todayStr}
+          </div>
+          <div class="counters-grid">
+            <div class="counter-box">
+              <div class="counter-icon" style="color:${c.color_kommen}">\u2B07\uFE0F</div>
+              <div class="counter-label">Kommen</div>
+              <div class="counter-value kommen" data-id="val-kommen">0</div>
+              <div class="counter-trend" data-id="trend-kommen"></div>
+            </div>
+            <div class="counter-box">
+              <div class="counter-icon" style="color:${c.color_gehen}">\u2B06\uFE0F</div>
+              <div class="counter-label">Gehen</div>
+              <div class="counter-value gehen" data-id="val-gehen">0</div>
+              <div class="counter-trend" data-id="trend-gehen"></div>
+            </div>
+          </div>
+          <div class="net-display" data-id="net-section">
+            <div class="net-label">
+              <span>\uD83C\uDFE2</span> Aktuell im Gebaeude
+            </div>
+            <div class="net-value" data-id="val-net">0</div>
+          </div>
+          <div class="yesterday-section" data-id="yesterday-section">
+            <div class="section-label" style="opacity:0.4;">
+              Gestern \u2014 ${yesterdayStr}
+              <span class="storage-badge">${modeLabel}</span>
+            </div>
+            <div data-id="yesterday-content">
+              <div class="yesterday-grid">
+                <div class="yesterday-box">
+                  <div class="yesterday-label">Kommen</div>
+                  <div class="yesterday-value kommen" data-id="val-y-kommen">\u2013</div>
+                </div>
+                <div class="yesterday-box">
+                  <div class="yesterday-label">Gehen</div>
+                  <div class="yesterday-value gehen" data-id="val-y-gehen">\u2013</div>
+                </div>
+              </div>
+              <div class="comparison-row" data-id="comparison-row">
+                <div class="comparison-item">
+                  <span class="trend-icon" data-id="cmp-icon-k"></span>
+                  <span data-id="cmp-text-k"></span>
+                </div>
+                <div class="comparison-item">
+                  <span class="trend-icon" data-id="cmp-icon-g"></span>
+                  <span data-id="cmp-text-g"></span>
+                </div>
+              </div>
+            </div>
+            <div class="no-data-hint" data-id="no-data-hint"></div>
+          </div>
+        </div>
+      </ha-card>
+    `;
+
+    this._els = {};
+    this.shadowRoot.querySelectorAll("[data-id]").forEach((el) => {
+      this._els[el.getAttribute("data-id")] = el;
+    });
+
+    this._domBuilt = true;
+  }
+
+  _setText(id, text) {
+    const el = this._els[id];
+    if (el && el.textContent !== String(text)) {
+      el.textContent = text;
+    }
+  }
+
+  _setHTML(id, html) {
+    const el = this._els[id];
+    if (el) el.innerHTML = html;
+  }
+
+  _toggleHidden(id, hidden) {
+    const el = this._els[id];
+    if (el) el.classList.toggle("hidden", hidden);
+  }
+
+  _triggerAnimation(id) {
+    const el = this._els[id];
+    if (!el) return;
+    el.classList.remove("animate");
+    void el.offsetWidth;
+    el.classList.add("animate");
+  }
+
+  _updateValues() {
+    if (!this._hass || !this._config || !this._domBuilt) return;
     const c = this._config;
 
     const kommen = this._getEntityValue(c.entity_kommen);
@@ -756,424 +1035,78 @@ class PersonenzaehlungCard extends HTMLElement {
     const yData = this._getYesterdayValues();
     const yKommen = yData.kommen;
     const yGehen = yData.gehen;
-    const yNet =
-      yKommen !== null && yGehen !== null ? yKommen - yGehen : null;
+    const yNet = yKommen !== null && yGehen !== null ? yKommen - yGehen : null;
 
     const trendK = this._getTrendIcon(kommen, yKommen);
     const trendG = this._getTrendIcon(gehen, yGehen);
     const trendNet = this._getTrendIcon(net, yNet);
-
     const pctK = this._getPercentChange(kommen, yKommen);
     const pctG = this._getPercentChange(gehen, yGehen);
 
-    const animateK =
-      c.animate_change &&
-      this._lastKommen !== null &&
-      this._lastKommen !== kommen;
-    const animateG =
-      c.animate_change &&
-      this._lastGehen !== null &&
-      this._lastGehen !== gehen;
+    const kommenChanged = this._lastKommen !== null && this._lastKommen !== kommen;
+    const gehenChanged = this._lastGehen !== null && this._lastGehen !== gehen;
+
+    this._setText("val-kommen", kommen);
+    this._setText("val-gehen", gehen);
+
+    if (c.animate_change && kommenChanged) this._triggerAnimation("val-kommen");
+    if (c.animate_change && gehenChanged) this._triggerAnimation("val-gehen");
+
     this._lastKommen = kommen;
     this._lastGehen = gehen;
 
-    const now = new Date();
-    const todayStr = now.toLocaleDateString("de-DE", {
-      weekday: "long",
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-    });
+    if (c.show_comparison && yKommen !== null) {
+      this._setHTML("trend-kommen",
+        `<span class="trend-icon ${trendK.cls}">${trendK.icon}</span><span>${pctK} vs. gestern</span>`);
+    } else {
+      this._setHTML("trend-kommen", "");
+    }
 
-    const yesterday = new Date(now);
-    yesterday.setDate(yesterday.getDate() - 1);
-    const yesterdayStr = yesterday.toLocaleDateString("de-DE", {
-      weekday: "long",
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-    });
+    if (c.show_comparison && yGehen !== null) {
+      this._setHTML("trend-gehen",
+        `<span class="trend-icon ${trendG.cls}">${trendG.icon}</span><span>${pctG} vs. gestern</span>`);
+    } else {
+      this._setHTML("trend-gehen", "");
+    }
 
-    const modeLabel =
-      c.yesterday_mode === "entities"
-        ? "HA-Helper"
-        : "auto";
+    this._toggleHidden("net-section", !c.show_net);
+    if (c.show_net) {
+      const netEl = this._els["val-net"];
+      if (netEl) {
+        netEl.textContent = (net > 0 ? "+" : "") + net;
+        netEl.className = "net-value " + (net > 0 ? "net-positive" : net < 0 ? "net-negative" : "net-zero");
+      }
+    }
 
-    this.shadowRoot.innerHTML = `
-      <style>
-        :host {
-          display: block;
+    this._toggleHidden("yesterday-section", !c.show_yesterday);
+    if (c.show_yesterday) {
+      const hasData = yKommen !== null || yGehen !== null;
+      this._toggleHidden("yesterday-content", !hasData);
+      this._toggleHidden("no-data-hint", hasData);
+
+      if (hasData) {
+        this._setText("val-y-kommen", yKommen !== null ? yKommen : "\u2013");
+        this._setText("val-y-gehen", yGehen !== null ? yGehen : "\u2013");
+
+        const showCmp = c.show_comparison && yKommen !== null && yGehen !== null;
+        this._toggleHidden("comparison-row", !showCmp);
+        if (showCmp) {
+          const ik = this._els["cmp-icon-k"];
+          const ig = this._els["cmp-icon-g"];
+          if (ik) { ik.className = `trend-icon ${trendK.cls}`; ik.textContent = trendK.icon; }
+          if (ig) { ig.className = `trend-icon ${trendG.cls}`; ig.textContent = trendG.icon; }
+          this._setText("cmp-text-k", `Kommen: ${pctK}`);
+          this._setText("cmp-text-g", `Gehen: ${pctG}`);
         }
-
-        @keyframes pulse {
-          0% { transform: scale(1); }
-          50% { transform: scale(1.15); }
-          100% { transform: scale(1); }
+      } else {
+        const hint = this._els["no-data-hint"];
+        if (hint) {
+          hint.innerHTML = c.yesterday_mode === "localstorage"
+            ? "Noch keine Vortageswerte vorhanden.<br/>Daten werden nach dem ersten Tageswechsel angezeigt."
+            : "Noch keine Vortageswerte vorhanden.<br/>Bitte Helper-Entitaeten konfigurieren.";
         }
-
-        @keyframes fadeIn {
-          from { opacity: 0; transform: translateY(8px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-
-        @keyframes countUp {
-          0% { opacity: 0.5; transform: scale(0.9); }
-          50% { transform: scale(1.12); }
-          100% { opacity: 1; transform: scale(1); }
-        }
-
-        .card {
-          background: ${c.bg_color};
-          color: ${c.text_color};
-          border-radius: ${c.border_radius}px;
-          padding: 20px;
-          font-family: 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-          box-shadow: 0 2px 12px rgba(0, 0, 0, 0.3);
-          animation: fadeIn 0.4s ease;
-        }
-
-        .card-header {
-          margin-bottom: 16px;
-        }
-
-        .card-title {
-          font-size: ${c.font_size_title}px;
-          font-weight: 600;
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          margin-bottom: 4px;
-        }
-
-        .card-title .icon {
-          font-size: ${c.font_size_title + 2}px;
-          opacity: 0.8;
-        }
-
-        .card-subtitle {
-          font-size: ${Math.max(c.font_size_title - 3, 11)}px;
-          opacity: 0.7;
-          display: flex;
-          align-items: center;
-          gap: 6px;
-        }
-
-        .section-label {
-          font-size: 13px;
-          font-weight: 600;
-          text-transform: uppercase;
-          letter-spacing: 0.8px;
-          opacity: 0.6;
-          margin-bottom: 10px;
-          display: flex;
-          align-items: center;
-          gap: 6px;
-        }
-
-        .section-label .dot {
-          width: 8px;
-          height: 8px;
-          border-radius: 50%;
-          background: ${c.color_kommen};
-          animation: pulse 2s infinite;
-        }
-
-        .counters-grid {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 12px;
-          margin-bottom: 16px;
-        }
-
-        .counter-box {
-          background: ${c.counter_bg};
-          border-radius: ${c.counter_radius}px;
-          padding: 16px;
-          text-align: center;
-          border: 1px solid rgba(255,255,255,0.06);
-          transition: transform 0.2s, box-shadow 0.2s;
-          cursor: default;
-        }
-
-        .counter-box:hover {
-          transform: translateY(-2px);
-          box-shadow: 0 4px 16px rgba(0,0,0,0.3);
-        }
-
-        .counter-icon {
-          font-size: 22px;
-          margin-bottom: 6px;
-        }
-
-        .counter-label {
-          font-size: 13px;
-          font-weight: 500;
-          margin-bottom: 4px;
-          opacity: 0.8;
-        }
-
-        .counter-value {
-          font-size: ${c.font_size_counter}px;
-          font-weight: 700;
-          line-height: 1.1;
-          font-variant-numeric: tabular-nums;
-        }
-
-        .counter-value.kommen {
-          color: ${c.color_kommen};
-        }
-
-        .counter-value.gehen {
-          color: ${c.color_gehen};
-        }
-
-        .counter-value.animate {
-          animation: countUp 0.5s ease;
-        }
-
-        .counter-trend {
-          font-size: 12px;
-          margin-top: 6px;
-          opacity: 0.7;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          gap: 4px;
-        }
-
-        .trend-icon.up { color: ${c.color_trend_up}; }
-        .trend-icon.down { color: ${c.color_trend_down}; }
-        .trend-icon.neutral { color: ${c.text_color}; opacity: 0.5; }
-
-        .net-display {
-          background: ${c.counter_bg};
-          border-radius: ${c.counter_radius}px;
-          padding: 12px 16px;
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          margin-bottom: 16px;
-          border: 1px solid rgba(255,255,255,0.06);
-        }
-
-        .net-label {
-          font-size: 13px;
-          font-weight: 500;
-          opacity: 0.8;
-          display: flex;
-          align-items: center;
-          gap: 6px;
-        }
-
-        .net-value {
-          font-size: ${Math.max(c.font_size_counter - 6, 18)}px;
-          font-weight: 700;
-          font-variant-numeric: tabular-nums;
-        }
-
-        .net-positive { color: ${c.color_kommen}; }
-        .net-negative { color: ${c.color_gehen}; }
-        .net-zero { opacity: 0.5; }
-
-        .yesterday-section {
-          border-top: 1px solid rgba(255,255,255,0.08);
-          padding-top: 14px;
-          margin-top: 4px;
-        }
-
-        .yesterday-grid {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 12px;
-        }
-
-        .yesterday-box {
-          background: rgba(255,255,255,0.03);
-          border-radius: ${c.counter_radius}px;
-          padding: 12px;
-          text-align: center;
-          border: 1px dashed rgba(255,255,255,0.08);
-        }
-
-        .yesterday-label {
-          font-size: 11px;
-          opacity: 0.5;
-          margin-bottom: 4px;
-          text-transform: uppercase;
-          letter-spacing: 0.5px;
-        }
-
-        .yesterday-value {
-          font-size: ${Math.max(c.font_size_counter - 10, 16)}px;
-          font-weight: 600;
-          font-variant-numeric: tabular-nums;
-          opacity: 0.6;
-        }
-
-        .yesterday-value.kommen { color: ${c.color_kommen}; }
-        .yesterday-value.gehen  { color: ${c.color_gehen}; }
-
-        .comparison-row {
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          gap: 16px;
-          margin-top: 10px;
-          padding: 8px 12px;
-          background: rgba(255,255,255,0.03);
-          border-radius: 8px;
-        }
-
-        .comparison-item {
-          display: flex;
-          align-items: center;
-          gap: 4px;
-          font-size: 12px;
-          opacity: 0.7;
-        }
-
-        .comparison-item .trend-icon {
-          font-size: 11px;
-        }
-
-        .storage-badge {
-          display: inline-block;
-          font-size: 10px;
-          opacity: 0.35;
-          background: rgba(255,255,255,0.08);
-          padding: 2px 6px;
-          border-radius: 4px;
-          margin-left: 8px;
-          font-weight: 400;
-          text-transform: none;
-          letter-spacing: 0;
-        }
-
-        .no-data-hint {
-          text-align: center;
-          font-size: 12px;
-          opacity: 0.4;
-          padding: 8px;
-          font-style: italic;
-        }
-
-        ${c.custom_css || ""}
-      </style>
-
-      <ha-card>
-        <div class="card">
-
-          <div class="card-header">
-            <div class="card-title">
-              <span class="icon">\uD83D\uDEAA</span>
-              ${c.card_title}
-            </div>
-            <div class="card-subtitle">
-              <span>\uD83D\uDC65</span> ${c.card_subtitle}
-            </div>
-          </div>
-
-          <div class="section-label">
-            <span class="dot"></span>
-            Heute \u2014 ${todayStr}
-          </div>
-
-          <div class="counters-grid">
-            <div class="counter-box">
-              <div class="counter-icon" style="color: ${c.color_kommen}">\u2B07\uFE0F</div>
-              <div class="counter-label">Kommen</div>
-              <div class="counter-value kommen ${animateK ? "animate" : ""}">${kommen}</div>
-              ${
-                c.show_comparison && yKommen !== null
-                  ? `<div class="counter-trend">
-                      <span class="trend-icon ${trendK.class}">${trendK.icon}</span>
-                      <span>${pctK} vs. gestern</span>
-                    </div>`
-                  : ""
-              }
-            </div>
-            <div class="counter-box">
-              <div class="counter-icon" style="color: ${c.color_gehen}">\u2B06\uFE0F</div>
-              <div class="counter-label">Gehen</div>
-              <div class="counter-value gehen ${animateG ? "animate" : ""}">${gehen}</div>
-              ${
-                c.show_comparison && yGehen !== null
-                  ? `<div class="counter-trend">
-                      <span class="trend-icon ${trendG.class}">${trendG.icon}</span>
-                      <span>${pctG} vs. gestern</span>
-                    </div>`
-                  : ""
-              }
-            </div>
-          </div>
-
-          ${
-            c.show_net
-              ? `<div class="net-display">
-                  <div class="net-label">
-                    <span>\uD83C\uDFE2</span> Aktuell im Gebaeude
-                  </div>
-                  <div class="net-value ${net > 0 ? "net-positive" : net < 0 ? "net-negative" : "net-zero"}">
-                    ${net > 0 ? "+" : ""}${net}
-                    ${
-                      c.show_comparison && yNet !== null
-                        ? `<span style="font-size: 12px; opacity: 0.5; margin-left: 8px;">
-                            <span class="trend-icon ${trendNet.class}">${trendNet.icon}</span>
-                          </span>`
-                        : ""
-                    }
-                  </div>
-                </div>`
-              : ""
-          }
-
-          ${
-            c.show_yesterday
-              ? `<div class="yesterday-section">
-                  <div class="section-label" style="opacity: 0.4;">
-                    Gestern \u2014 ${yesterdayStr}
-                    <span class="storage-badge">${modeLabel}</span>
-                  </div>
-                  ${
-                    yKommen !== null || yGehen !== null
-                      ? `<div class="yesterday-grid">
-                          <div class="yesterday-box">
-                            <div class="yesterday-label">Kommen</div>
-                            <div class="yesterday-value kommen">${yKommen !== null ? yKommen : "\u2013"}</div>
-                          </div>
-                          <div class="yesterday-box">
-                            <div class="yesterday-label">Gehen</div>
-                            <div class="yesterday-value gehen">${yGehen !== null ? yGehen : "\u2013"}</div>
-                          </div>
-                        </div>
-                        ${
-                          c.show_comparison && yKommen !== null && yGehen !== null
-                            ? `<div class="comparison-row">
-                                <div class="comparison-item">
-                                  <span class="trend-icon ${trendK.class}">${trendK.icon}</span>
-                                  Kommen: ${pctK}
-                                </div>
-                                <div class="comparison-item">
-                                  <span class="trend-icon ${trendG.class}">${trendG.icon}</span>
-                                  Gehen: ${pctG}
-                                </div>
-                              </div>`
-                            : ""
-                        }`
-                      : `<div class="no-data-hint">
-                          Noch keine Vortageswerte vorhanden.<br/>
-                          ${c.yesterday_mode === "localstorage"
-                            ? "Daten werden nach dem ersten Tageswechsel angezeigt."
-                            : "Bitte Helper-Entitaeten konfigurieren."}
-                        </div>`
-                  }
-                </div>`
-              : ""
-          }
-
-        </div>
-      </ha-card>
-    `;
+      }
+    }
   }
 
   getCardSize() {
@@ -1197,7 +1130,7 @@ window.customCards.push({
 });
 
 console.info(
-  `%c PERSONENZAEHLUNG CARD %c v${CARD_VERSION} `,
+  `%c PERSONENZAEHLUNG CARD %c v${CARD_VERSION} (no-flicker) `,
   "color: white; background: #4caf50; font-weight: bold; padding: 2px 6px; border-radius: 4px 0 0 4px;",
   "color: white; background: #333; font-weight: bold; padding: 2px 6px; border-radius: 0 4px 4px 0;"
 );

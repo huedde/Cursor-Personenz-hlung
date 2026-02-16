@@ -1,5 +1,7 @@
 # Personenzählung Card für Home Assistant
 
+[![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
+
 Custom Lovelace Card für die Anzeige von Personenzählung über MDT Bewegungsmelder mit Laufrichtungserkennung. **Keine API erforderlich.**
 
 ## Features
@@ -16,18 +18,30 @@ Custom Lovelace Card für die Anzeige von Personenzählung über MDT Bewegungsme
 
 ## Installation
 
-1. Kopiere `personenzaehlung-card.js` nach:
+### HACS (empfohlen)
+
+1. Öffne HACS → **Frontend**
+2. Klicke oben rechts auf die drei Punkte → **Benutzerdefinierte Repositories**
+3. Füge `huedde/Cursor-Personenz-hlung` als Repository hinzu, Kategorie: **Lovelace**
+4. Klicke **Installieren**
+5. Starte Home Assistant neu
+6. Leere den Browser-Cache (Strg+Shift+R)
+
+### Manuell
+
+1. Lade `personenzaehlung-card.js` aus dem `dist/` Ordner herunter
+2. Kopiere die Datei nach:
    ```
    /config/www/personenzaehlung-card.js
    ```
 
-2. Füge die Ressource in Home Assistant hinzu:
+3. Füge die Ressource in Home Assistant hinzu:
    - Gehe zu **Einstellungen** → **Dashboards** → **Ressourcen** (oben rechts: drei Punkte)
    - Klicke **Ressource hinzufügen**
    - URL: `/local/personenzaehlung-card.js`
    - Typ: **JavaScript-Modul**
 
-3. Leere den Browser-Cache (Strg+Shift+R)
+4. Leere den Browser-Cache (Strg+Shift+R)
 
 ## Verwendung
 

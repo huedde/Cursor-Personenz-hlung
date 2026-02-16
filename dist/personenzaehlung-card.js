@@ -6,7 +6,7 @@
  * Visueller Editor mit CSS-Anpassungen und Entity-Auswahl
  */
 
-const CARD_VERSION = "1.2.0";
+const CARD_VERSION = "1.3.0";
 
 // ============================================================
 // EDITOR (Visueller Konfigurations-Editor)
@@ -16,12 +16,20 @@ class PersonenzaehlungCardEditor extends HTMLElement {
     super();
     this._config = {};
     this._hass = null;
+    this._entityCache = [];
   }
 
   set hass(hass) {
     this._hass = hass;
-    if (this._editorRendered) {
-      this._populateEntityDropdowns();
+    if (this._hass) {
+      const entities = Object.keys(this._hass.states).sort();
+      this._entityCache = entities.filter(
+        (e) =>
+          e.startsWith("binary_sensor.") ||
+          e.startsWith("sensor.") ||
+          e.startsWith("counter.") ||
+          e.startsWith("input_number.")
+      );
     }
   }
 
@@ -143,25 +151,89 @@ class PersonenzaehlungCardEditor extends HTMLElement {
           color: var(--primary-text-color, #555);
           margin-bottom: 12px;
         }
+        /* Searchable entity picker */
+        .entity-picker {
+          position: relative;
+        }
+        .entity-picker input {
+          width: 100%;
+          box-sizing: border-box;
+        }
+        .entity-picker .ep-list {
+          display: none;
+          position: absolute;
+          top: 100%;
+          left: 0;
+          right: 0;
+          max-height: 200px;
+          overflow-y: auto;
+          background: var(--card-background-color, #fff);
+          border: 1px solid var(--divider-color, #ccc);
+          border-top: none;
+          border-radius: 0 0 6px 6px;
+          z-index: 10;
+          box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+        .entity-picker.open .ep-list {
+          display: block;
+        }
+        .entity-picker .ep-item {
+          padding: 6px 12px;
+          font-size: 13px;
+          cursor: pointer;
+          color: var(--primary-text-color, #333);
+          border-bottom: 1px solid var(--divider-color, #eee);
+        }
+        .entity-picker .ep-item:hover,
+        .entity-picker .ep-item.active {
+          background: var(--primary-color, #03a9f4);
+          color: #fff;
+        }
+        .entity-picker .ep-item .ep-id {
+          font-size: 11px;
+          opacity: 0.6;
+          display: block;
+        }
+        .entity-picker .ep-empty {
+          padding: 8px 12px;
+          font-size: 12px;
+          opacity: 0.5;
+          font-style: italic;
+        }
+        .entity-picker .ep-clear {
+          position: absolute;
+          right: 8px;
+          top: 50%;
+          transform: translateY(-50%);
+          cursor: pointer;
+          font-size: 16px;
+          opacity: 0.4;
+          line-height: 1;
+          padding: 4px;
+        }
+        .entity-picker .ep-clear:hover { opacity: 0.8; }
       </style>
       <div class="editor-container">
 
-        <!-- Entitäten -->
         <div class="editor-section">
-          <h3>Entitaeten (Binaersensoren / Zaehler)</h3>
+          <h3>Entitaeten</h3>
           <div class="editor-row">
             <label>Sensor "Kommen" (Eingang)</label>
-            <select id="entity_kommen">
-              <option value="">-- Entitaet auswaehlen --</option>
-            </select>
-            <span class="entity-hint">binary_sensor.* oder sensor.* / counter.*</span>
+            <div class="entity-picker" data-field="entity_kommen">
+              <input type="text" class="ep-input" placeholder="Suchen oder Entity-ID eingeben..." autocomplete="off" />
+              <span class="ep-clear">&times;</span>
+              <div class="ep-list"></div>
+            </div>
+            <span class="entity-hint">binary_sensor.* / sensor.* / counter.* / input_number.*</span>
           </div>
           <div class="editor-row">
             <label>Sensor "Gehen" (Ausgang)</label>
-            <select id="entity_gehen">
-              <option value="">-- Entitaet auswaehlen --</option>
-            </select>
-            <span class="entity-hint">binary_sensor.* oder sensor.* / counter.*</span>
+            <div class="entity-picker" data-field="entity_gehen">
+              <input type="text" class="ep-input" placeholder="Suchen oder Entity-ID eingeben..." autocomplete="off" />
+              <span class="ep-clear">&times;</span>
+              <div class="ep-list"></div>
+            </div>
+            <span class="entity-hint">binary_sensor.* / sensor.* / counter.* / input_number.*</span>
           </div>
           <div class="editor-row">
             <label>Titel der Karte</label>
@@ -171,14 +243,17 @@ class PersonenzaehlungCardEditor extends HTMLElement {
             <label>Untertitel</label>
             <input type="text" id="card_subtitle" placeholder="z.B. Personen" />
           </div>
+          <div class="editor-row">
+            <label>Text "Aktuell im Gebaeude"</label>
+            <input type="text" id="net_label" placeholder="z.B. Aktuell im Gebaeude" />
+          </div>
         </div>
 
-        <!-- Vortag-Modus -->
         <div class="editor-section">
           <h3>Vortag-Datenquelle</h3>
           <div class="info-box">
-            <strong>localStorage (Standard):</strong> Die Karte speichert die Tageswerte automatisch im Browser. Um Mitternacht werden die Werte als "Gestern" gesichert.<br/>
-            <strong>HA-Helper:</strong> Nutze input_number Helfer in Home Assistant und eine Automation, die um Mitternacht die Werte kopiert. Zuverlaessiger bei mehreren Browsern/Geraeten.
+            <strong>localStorage (Standard):</strong> Speichert Tageswerte automatisch im Browser. Um Mitternacht werden die Werte als "Gestern" gesichert.<br/>
+            <strong>HA-Helper:</strong> Nutze input_number Helfer + Automation. Zuverlaessiger bei mehreren Geraeten.
           </div>
           <div class="editor-row">
             <label>Vortag-Modus</label>
@@ -187,26 +262,26 @@ class PersonenzaehlungCardEditor extends HTMLElement {
               <option value="entities">HA-Helper Entitaeten</option>
             </select>
           </div>
-
           <div class="helper-section" id="helper_entities_section">
             <div class="editor-row">
-              <label>Gestern "Kommen" (input_number / sensor)</label>
-              <select id="entity_yesterday_kommen">
-                <option value="">-- Entitaet auswaehlen --</option>
-              </select>
-              <span class="entity-hint">z.B. input_number.gestern_kommen</span>
+              <label>Gestern "Kommen"</label>
+              <div class="entity-picker" data-field="entity_yesterday_kommen">
+                <input type="text" class="ep-input" placeholder="Suchen..." autocomplete="off" />
+                <span class="ep-clear">&times;</span>
+                <div class="ep-list"></div>
+              </div>
             </div>
             <div class="editor-row">
-              <label>Gestern "Gehen" (input_number / sensor)</label>
-              <select id="entity_yesterday_gehen">
-                <option value="">-- Entitaet auswaehlen --</option>
-              </select>
-              <span class="entity-hint">z.B. input_number.gestern_gehen</span>
+              <label>Gestern "Gehen"</label>
+              <div class="entity-picker" data-field="entity_yesterday_gehen">
+                <input type="text" class="ep-input" placeholder="Suchen..." autocomplete="off" />
+                <span class="ep-clear">&times;</span>
+                <div class="ep-list"></div>
+              </div>
             </div>
           </div>
         </div>
 
-        <!-- Anzeige-Optionen -->
         <div class="editor-section">
           <h3>Anzeige-Optionen</h3>
           <div class="editor-row">
@@ -239,7 +314,6 @@ class PersonenzaehlungCardEditor extends HTMLElement {
           </div>
         </div>
 
-        <!-- CSS / Design -->
         <div class="editor-section">
           <h3>Design & CSS</h3>
           <div class="color-grid">
@@ -272,8 +346,7 @@ class PersonenzaehlungCardEditor extends HTMLElement {
               <input type="color" id="color_trend_down" value="#f44336" />
             </div>
           </div>
-
-          <div class="editor-row" style="margin-top: 16px;">
+          <div class="editor-row" style="margin-top:16px;">
             <label>Schriftgroesse Zaehler</label>
             <div class="range-row">
               <input type="range" id="font_size_counter" min="16" max="60" value="32" />
@@ -301,21 +374,15 @@ class PersonenzaehlungCardEditor extends HTMLElement {
               <span class="range-value" id="counter_radius_val">12px</span>
             </div>
           </div>
-
           <div class="editor-row" style="margin-top:12px;">
             <label>Eigenes CSS (ueberschreibt obige Werte)</label>
             <textarea id="custom_css" rows="4" style="
-              padding: 8px 12px;
-              border: 1px solid var(--divider-color, #ccc);
-              border-radius: 6px;
-              font-family: 'Courier New', monospace;
-              font-size: 12px;
-              background: var(--card-background-color, #fff);
-              color: var(--primary-text-color, #333);
-              resize: vertical;
+              padding:8px 12px; border:1px solid var(--divider-color,#ccc);
+              border-radius:6px; font-family:'Courier New',monospace; font-size:12px;
+              background:var(--card-background-color,#fff); color:var(--primary-text-color,#333);
+              resize:vertical;
             " placeholder="z.B. .card { box-shadow: 0 4px 20px rgba(0,0,0,0.3); }"></textarea>
           </div>
-
           <div class="editor-row">
             <label>CSS-Vorschau (generiert)</label>
             <div class="css-preview" id="css_preview">Wird automatisch generiert...</div>
@@ -325,46 +392,77 @@ class PersonenzaehlungCardEditor extends HTMLElement {
       </div>
     `;
 
+    this._initEntityPickers();
     this._bindEvents();
     this._loadConfig();
     this._toggleHelperSection();
-    if (this._hass) this._populateEntityDropdowns();
   }
 
-  _populateEntityDropdowns() {
-    if (!this._hass) return;
-    const entities = Object.keys(this._hass.states).sort();
-    const relevantEntities = entities.filter(
-      (e) =>
-        e.startsWith("binary_sensor.") ||
-        e.startsWith("sensor.") ||
-        e.startsWith("counter.") ||
-        e.startsWith("input_number.")
-    );
+  _initEntityPickers() {
+    this.querySelectorAll(".entity-picker").forEach((picker) => {
+      const field = picker.dataset.field;
+      const input = picker.querySelector(".ep-input");
+      const list = picker.querySelector(".ep-list");
+      const clear = picker.querySelector(".ep-clear");
 
-    const dropdowns = [
-      "entity_kommen",
-      "entity_gehen",
-      "entity_yesterday_kommen",
-      "entity_yesterday_gehen",
-    ];
-
-    dropdowns.forEach((id) => {
-      const sel = this.querySelector(`#${id}`);
-      if (!sel) return;
-      const currentVal = sel.value;
-      sel.innerHTML = '<option value="">-- Entitaet auswaehlen --</option>';
-      relevantEntities.forEach((eid) => {
-        const friendly =
-          this._hass.states[eid]?.attributes?.friendly_name || eid;
-        const opt = document.createElement("option");
-        opt.value = eid;
-        opt.textContent = `${friendly} (${eid})`;
-        sel.appendChild(opt);
+      input.addEventListener("focus", () => {
+        this._filterEntityList(picker, input.value);
+        picker.classList.add("open");
       });
-      if (currentVal) sel.value = currentVal;
-      else if (this._config[id]) sel.value = this._config[id];
+
+      input.addEventListener("input", () => {
+        this._filterEntityList(picker, input.value);
+        picker.classList.add("open");
+        this._config[field] = input.value;
+        this._updateConfig();
+      });
+
+      clear.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        input.value = "";
+        this._config[field] = "";
+        this._updateConfig();
+        this._filterEntityList(picker, "");
+        input.focus();
+      });
+
+      list.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        const item = e.target.closest(".ep-item");
+        if (!item) return;
+        input.value = item.dataset.entity;
+        this._config[field] = item.dataset.entity;
+        picker.classList.remove("open");
+        this._updateConfig();
+      });
+
+      input.addEventListener("blur", () => {
+        setTimeout(() => picker.classList.remove("open"), 150);
+      });
     });
+  }
+
+  _filterEntityList(picker, query) {
+    const list = picker.querySelector(".ep-list");
+    const q = (query || "").toLowerCase();
+    const entities = this._entityCache;
+    const filtered = entities.filter((eid) => {
+      if (!q) return true;
+      const friendly = this._hass?.states[eid]?.attributes?.friendly_name || "";
+      return eid.toLowerCase().includes(q) || friendly.toLowerCase().includes(q);
+    }).slice(0, 50);
+
+    if (filtered.length === 0) {
+      list.innerHTML = '<div class="ep-empty">Keine Entitaeten gefunden</div>';
+      return;
+    }
+
+    list.innerHTML = filtered.map((eid) => {
+      const friendly = this._hass?.states[eid]?.attributes?.friendly_name || eid;
+      return `<div class="ep-item" data-entity="${eid}">
+        ${friendly}<span class="ep-id">${eid}</span>
+      </div>`;
+    }).join("");
   }
 
   _toggleHelperSection() {
@@ -377,38 +475,20 @@ class PersonenzaehlungCardEditor extends HTMLElement {
 
   _bindEvents() {
     const fields = [
-      "entity_kommen",
-      "entity_gehen",
-      "entity_yesterday_kommen",
-      "entity_yesterday_gehen",
-      "card_title",
-      "card_subtitle",
+      "card_title", "card_subtitle", "net_label",
       "yesterday_mode",
-      "show_yesterday",
-      "show_comparison",
-      "show_net",
-      "animate_change",
-      "color_kommen",
-      "color_gehen",
-      "bg_color",
-      "text_color",
-      "counter_bg",
-      "color_trend_up",
-      "color_trend_down",
-      "font_size_counter",
-      "font_size_title",
-      "border_radius",
-      "counter_radius",
+      "show_yesterday", "show_comparison", "show_net", "animate_change",
+      "color_kommen", "color_gehen", "bg_color", "text_color",
+      "counter_bg", "color_trend_up", "color_trend_down",
+      "font_size_counter", "font_size_title",
+      "border_radius", "counter_radius",
       "custom_css",
     ];
 
     fields.forEach((id) => {
       const el = this.querySelector(`#${id}`);
       if (!el) return;
-      const evtType =
-        el.tagName === "SELECT" || el.tagName === "TEXTAREA"
-          ? "change"
-          : "input";
+      const evtType = el.tagName === "SELECT" || el.tagName === "TEXTAREA" ? "change" : "input";
       el.addEventListener(evtType, () => {
         if (id === "yesterday_mode") this._toggleHelperSection();
         this._updateConfig();
@@ -423,12 +503,20 @@ class PersonenzaehlungCardEditor extends HTMLElement {
       if (el && val !== undefined) el.value = val;
     };
 
-    setVal("entity_kommen", c.entity_kommen);
-    setVal("entity_gehen", c.entity_gehen);
-    setVal("entity_yesterday_kommen", c.entity_yesterday_kommen);
-    setVal("entity_yesterday_gehen", c.entity_yesterday_gehen);
+    const entityFields = [
+      "entity_kommen", "entity_gehen",
+      "entity_yesterday_kommen", "entity_yesterday_gehen",
+    ];
+    entityFields.forEach((field) => {
+      const picker = this.querySelector(`.entity-picker[data-field="${field}"]`);
+      if (picker && c[field]) {
+        picker.querySelector(".ep-input").value = c[field];
+      }
+    });
+
     setVal("card_title", c.card_title || "");
     setVal("card_subtitle", c.card_subtitle || "Personen");
+    setVal("net_label", c.net_label || "Aktuell im Gebaeude");
     setVal("yesterday_mode", c.yesterday_mode || "localstorage");
     setVal("show_yesterday", c.show_yesterday !== false ? "true" : "false");
     setVal("show_comparison", c.show_comparison !== false ? "true" : "false");
@@ -456,18 +544,24 @@ class PersonenzaehlungCardEditor extends HTMLElement {
     return el ? el.value : "";
   }
 
+  _getEntityVal(field) {
+    const picker = this.querySelector(`.entity-picker[data-field="${field}"]`);
+    return picker ? picker.querySelector(".ep-input").value.trim() : "";
+  }
+
   _updateConfig() {
     this._updateRangeDisplays();
     this._updateCSSPreview();
 
     const newConfig = {
       type: "custom:personenzaehlung-card",
-      entity_kommen: this._getVal("entity_kommen"),
-      entity_gehen: this._getVal("entity_gehen"),
-      entity_yesterday_kommen: this._getVal("entity_yesterday_kommen"),
-      entity_yesterday_gehen: this._getVal("entity_yesterday_gehen"),
+      entity_kommen: this._getEntityVal("entity_kommen"),
+      entity_gehen: this._getEntityVal("entity_gehen"),
+      entity_yesterday_kommen: this._getEntityVal("entity_yesterday_kommen"),
+      entity_yesterday_gehen: this._getEntityVal("entity_yesterday_gehen"),
       card_title: this._getVal("card_title"),
       card_subtitle: this._getVal("card_subtitle"),
+      net_label: this._getVal("net_label"),
       yesterday_mode: this._getVal("yesterday_mode"),
       show_yesterday: this._getVal("show_yesterday") === "true",
       show_comparison: this._getVal("show_comparison") === "true",
@@ -488,7 +582,6 @@ class PersonenzaehlungCardEditor extends HTMLElement {
     };
 
     this._config = newConfig;
-
     const event = new CustomEvent("config-changed", {
       detail: { config: newConfig },
       bubbles: true,
@@ -498,13 +591,7 @@ class PersonenzaehlungCardEditor extends HTMLElement {
   }
 
   _updateRangeDisplays() {
-    const ranges = [
-      ["font_size_counter", "px"],
-      ["font_size_title", "px"],
-      ["border_radius", "px"],
-      ["counter_radius", "px"],
-    ];
-    ranges.forEach(([id, unit]) => {
+    [["font_size_counter","px"],["font_size_title","px"],["border_radius","px"],["counter_radius","px"]].forEach(([id, unit]) => {
       const el = this.querySelector(`#${id}`);
       const disp = this.querySelector(`#${id}_val`);
       if (el && disp) disp.textContent = `${el.value}${unit}`;
@@ -514,7 +601,7 @@ class PersonenzaehlungCardEditor extends HTMLElement {
   _updateCSSPreview() {
     const preview = this.querySelector("#css_preview");
     if (!preview) return;
-    const css = `.card {
+    preview.textContent = `.card {
   background: ${this._getVal("bg_color") || "#1c1c1e"};
   color: ${this._getVal("text_color") || "#ffffff"};
   border-radius: ${this._getVal("border_radius") || 12}px;
@@ -523,12 +610,9 @@ class PersonenzaehlungCardEditor extends HTMLElement {
   background: ${this._getVal("counter_bg") || "#2c2c2e"};
   border-radius: ${this._getVal("counter_radius") || 12}px;
 }
-.counter-value {
-  font-size: ${this._getVal("font_size_counter") || 32}px;
-}
+.counter-value { font-size: ${this._getVal("font_size_counter") || 32}px; }
 .kommen { color: ${this._getVal("color_kommen") || "#4caf50"}; }
 .gehen  { color: ${this._getVal("color_gehen") || "#f44336"}; }`;
-    preview.textContent = css;
   }
 }
 
@@ -640,6 +724,7 @@ class PersonenzaehlungCard extends HTMLElement {
       entity_gehen: "",
       card_title: "Eingang Gebaeude",
       card_subtitle: "Personen",
+      net_label: "Aktuell im Gebaeude",
       yesterday_mode: "localstorage",
       entity_yesterday_kommen: "",
       entity_yesterday_gehen: "",
@@ -697,6 +782,7 @@ class PersonenzaehlungCard extends HTMLElement {
     this._config = {
       card_title: "Eingang",
       card_subtitle: "Personen",
+      net_label: "Aktuell im Gebaeude",
       yesterday_mode: "localstorage",
       entity_yesterday_kommen: "",
       entity_yesterday_gehen: "",
@@ -952,7 +1038,7 @@ class PersonenzaehlungCard extends HTMLElement {
           <div class="net-display" data-id="net-section">
             <div class="net-label">
               <svg viewBox="0 0 24 24" fill="${c.text_color}" opacity="0.8"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
-              Aktuell im Gebaeude
+              <span data-id="net-label-text">${c.net_label}</span>
             </div>
             <div class="net-value" data-id="val-net">0</div>
           </div>

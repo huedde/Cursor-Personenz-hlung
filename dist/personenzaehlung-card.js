@@ -801,7 +801,7 @@ class PersonenzaehlungCard extends HTMLElement {
           display: flex; align-items: center; gap: 8px;
           margin-bottom: 4px;
         }
-        .card-title .icon { font-size: ${c.font_size_title + 2}px; opacity: 0.8; }
+        .card-subtitle svg { width: 16px; height: 16px; vertical-align: middle; }
         .card-subtitle {
           font-size: ${Math.max(c.font_size_title - 3, 11)}px;
           opacity: 0.7;
@@ -834,7 +834,8 @@ class PersonenzaehlungCard extends HTMLElement {
           transform: translateY(-2px);
           box-shadow: 0 4px 16px rgba(0,0,0,0.3);
         }
-        .counter-icon { font-size: 22px; margin-bottom: 6px; }
+        .counter-icon { font-size: 22px; margin-bottom: 6px; line-height: 1; }
+        .counter-icon svg { width: 28px; height: 28px; }
         .counter-label { font-size: 13px; font-weight: 500; margin-bottom: 4px; opacity: 0.8; }
         .counter-value {
           font-size: ${c.font_size_counter}px;
@@ -865,6 +866,7 @@ class PersonenzaehlungCard extends HTMLElement {
           font-size: 13px; font-weight: 500; opacity: 0.8;
           display: flex; align-items: center; gap: 6px;
         }
+        .net-label svg { width: 20px; height: 20px; flex-shrink: 0; }
         .net-value {
           font-size: ${Math.max(c.font_size_counter - 6, 18)}px;
           font-weight: 700; font-variant-numeric: tabular-nums;
@@ -923,7 +925,6 @@ class PersonenzaehlungCard extends HTMLElement {
         <div class="card">
           <div class="card-header">
             <div class="card-title">
-              <span class="icon">\uD83D\uDEAA</span>
               <span data-id="title">${c.card_title}</span>
             </div>
             <div class="card-subtitle">
@@ -936,13 +937,13 @@ class PersonenzaehlungCard extends HTMLElement {
           </div>
           <div class="counters-grid">
             <div class="counter-box">
-              <div class="counter-icon" style="color:${c.color_kommen}">\u2B07\uFE0F</div>
+              <div class="counter-icon"><svg viewBox="0 0 24 24" fill="${c.color_kommen}"><path d="M13.5 5.5c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zM9.8 8.9L7 23h2.1l1.8-8 2.1 2v6h2v-7.5l-2.1-2 .6-3C14.8 12 16.8 13 19 13v-2c-1.9 0-3.5-1-4.3-2.4l-1-1.6c-.4-.6-1-1-1.7-1-.3 0-.5.1-.8.1L6 8.3V13h2V9.6l1.8-.7"/></svg></div>
               <div class="counter-label">Kommen</div>
               <div class="counter-value kommen" data-id="val-kommen">0</div>
               <div class="counter-trend" data-id="trend-kommen"></div>
             </div>
             <div class="counter-box">
-              <div class="counter-icon" style="color:${c.color_gehen}">\u2B06\uFE0F</div>
+              <div class="counter-icon"><svg viewBox="0 0 24 24" fill="${c.color_gehen}"><path d="M13.5 5.5c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zM9.8 8.9L7 23h2.1l1.8-8 2.1 2v6h2v-7.5l-2.1-2 .6-3C14.8 12 16.8 13 19 13v-2c-1.9 0-3.5-1-4.3-2.4l-1-1.6c-.4-.6-1-1-1.7-1-.3 0-.5.1-.8.1L6 8.3V13h2V9.6l1.8-.7"/></svg></div>
               <div class="counter-label">Gehen</div>
               <div class="counter-value gehen" data-id="val-gehen">0</div>
               <div class="counter-trend" data-id="trend-gehen"></div>
@@ -950,7 +951,8 @@ class PersonenzaehlungCard extends HTMLElement {
           </div>
           <div class="net-display" data-id="net-section">
             <div class="net-label">
-              <span>\uD83C\uDFE2</span> Aktuell im Gebaeude
+              <svg viewBox="0 0 24 24" fill="${c.text_color}" opacity="0.8"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
+              Aktuell im Gebaeude
             </div>
             <div class="net-value" data-id="val-net">0</div>
           </div>

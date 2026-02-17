@@ -2,120 +2,97 @@
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
 
-Custom Lovelace Card für die Anzeige von Personenzählung über MDT Bewegungsmelder mit Laufrichtungserkennung. **Keine API erforderlich.**
+Custom Lovelace Card für die Anzeige von Personenzählung über MDT Bewegungsmelder mit Laufrichtungserkennung.
 
 ## Features
 
 - **Echtzeit-Zählung**: Zeigt Kommen/Gehen Werte des aktuellen Tages
-- **Vortagsvergleich ohne API**: Zwei Modi verfügbar:
-  - **localStorage (Standard)**: Speichert automatisch im Browser, null Konfiguration nötig
-  - **HA-Helper**: Nutzt `input_number` Entitäten + Automation (zuverlässig bei mehreren Geräten)
+- **Backend-Zählung**: HA zählt 24/7 via Counter + Automation (browserunabhängig)
+- **Vortagsvergleich**: Automatisch via HA-Helper oder localStorage
 - **Trend-Anzeige**: Pfeile und Prozentwerte zeigen Veränderungen zum Vortag
-- **Netto-Anzeige**: Berechnet "Aktuell im Gebäude" (Kommen - Gehen)
-- **Visueller Editor**: Kompletter GUI-Editor mit Entity-Auswahl und CSS-Anpassung
+- **Netto-Anzeige**: Berechnet Personen im Gebäude (Kommen - Gehen), Text frei änderbar
+- **Visueller Editor**: GUI-Editor mit Suchfeld für Entitäten und CSS-Anpassung
 - **Animationen**: Puls-Animation bei Wertänderungen
 - **Vollständig anpassbar**: Farben, Schriftgrößen, Eckenradien, eigenes CSS
 
-## Installation
+## Schnellstart (3 Schritte)
 
-### HACS (empfohlen)
+### Schritt 1: HA-Backend einrichten (Zählung)
 
-1. Öffne HACS → **Frontend**
-2. Klicke oben rechts auf die drei Punkte → **Benutzerdefinierte Repositories**
-3. Füge `huedde/Cursor-Personenz-hlung` als Repository hinzu, Kategorie: **Lovelace**
-4. Klicke **Installieren**
-5. Starte Home Assistant neu
-6. Leere den Browser-Cache (Strg+Shift+R)
+Die Datei `ha-config/personenzaehlung.yaml` nach `/config/packages/` kopieren.
 
-### Manuell
+In `configuration.yaml` sicherstellen, dass Packages aktiviert sind:
 
-1. Lade `personenzaehlung-card.js` aus dem `dist/` Ordner herunter
-2. Kopiere die Datei nach:
-   ```
-   /config/www/personenzaehlung-card.js
-   ```
+```yaml
+homeassistant:
+  packages: !include_dir_named packages
+```
 
-3. Füge die Ressource in Home Assistant hinzu:
-   - Gehe zu **Einstellungen** → **Dashboards** → **Ressourcen** (oben rechts: drei Punkte)
-   - Klicke **Ressource hinzufügen**
+**Wichtig**: In der Datei die Entity-IDs an deine MDT-Sensoren anpassen:
+
+```yaml
+# In personenzaehlung.yaml diese Zeilen suchen und ändern:
+entity_id: binary_sensor.mdt_eingang_kommen  # ← Dein Kommen-Sensor
+entity_id: binary_sensor.mdt_eingang_gehen   # ← Dein Gehen-Sensor
+```
+
+Home Assistant neu starten. Danach existieren:
+- `counter.personen_kommen_heute` — Zählt Kommen-Impulse
+- `counter.personen_gehen_heute` — Zählt Gehen-Impulse
+- `input_number.personen_kommen_gestern` — Gestern Kommen
+- `input_number.personen_gehen_gestern` — Gestern Gehen
+- `sensor.personen_im_gebaeude` — Netto-Personen
+
+### Schritt 2: Card installieren
+
+**HACS (empfohlen):**
+1. HACS → Frontend → Drei Punkte → Benutzerdefinierte Repositories
+2. `huedde/Cursor-Personenz-hlung` hinzufügen, Kategorie: **Lovelace**
+3. Installieren → Home Assistant neu starten
+
+**Manuell:**
+1. `dist/personenzaehlung-card.js` nach `/config/www/` kopieren
+2. Einstellungen → Dashboards → Ressourcen → Hinzufügen:
    - URL: `/local/personenzaehlung-card.js`
-   - Typ: **JavaScript-Modul**
+   - Typ: JavaScript-Modul
+3. Browser-Cache leeren (Strg+Shift+R)
 
-4. Leere den Browser-Cache (Strg+Shift+R)
+### Schritt 3: Karte konfigurieren
 
-## Verwendung
+Dashboard bearbeiten → Karte hinzufügen → "Personenzählung" suchen.
 
-### Über den visuellen Editor
-
-1. Bearbeite ein Dashboard
-2. Klicke **Karte hinzufügen**
-3. Suche nach **Personenzählung**
-4. Wähle die Entitäten für Kommen und Gehen aus
-5. Wähle den Vortag-Modus (localStorage oder HA-Helper)
-6. Passe Farben und Design nach Wunsch an
-
-### YAML-Konfiguration
-
-#### Modus 1: localStorage (Standard — kein Setup nötig)
+Im Editor die Counter-Entitäten auswählen:
 
 ```yaml
 type: custom:personenzaehlung-card
-entity_kommen: sensor.mdt_eingang_kommen
-entity_gehen: sensor.mdt_eingang_gehen
+entity_kommen: counter.personen_kommen_heute
+entity_gehen: counter.personen_gehen_heute
 card_title: Seitentür zum Gebäude 441
 card_subtitle: Personen
-yesterday_mode: localstorage
-```
-
-Die Karte merkt sich die Tageswerte automatisch im Browser. Beim Tageswechsel (Mitternacht) werden die aktuellen Werte als "Gestern" gespeichert.
-
-> **Hinweis**: localStorage ist pro Browser/Gerät. Auf verschiedenen Geräten sieht man unterschiedliche Vortageswerte. Für geräteübergreifende Synchronisation nutze Modus 2.
-
-#### Modus 2: HA-Helper Entitäten
-
-```yaml
-type: custom:personenzaehlung-card
-entity_kommen: sensor.mdt_eingang_kommen
-entity_gehen: sensor.mdt_eingang_gehen
-card_title: Seitentür zum Gebäude 441
-card_subtitle: Personen
+net_label: Aktuell im Gebäude
 yesterday_mode: entities
-entity_yesterday_kommen: input_number.gestern_kommen
-entity_yesterday_gehen: input_number.gestern_gehen
+entity_yesterday_kommen: input_number.personen_kommen_gestern
+entity_yesterday_gehen: input_number.personen_gehen_gestern
 ```
 
-##### Helper anlegen
+## Wie die Zählung funktioniert
 
-In Home Assistant unter **Einstellungen → Geräte & Dienste → Helfer**:
-
-1. `input_number.gestern_kommen` — Min: 0, Max: 9999, Schritt: 1
-2. `input_number.gestern_gehen` — Min: 0, Max: 9999, Schritt: 1
-
-##### Automation für Mitternacht-Reset
-
-Unter **Einstellungen → Automatisierungen** neue Automation anlegen:
-
-```yaml
-alias: "Personenzählung - Tageswechsel"
-description: "Kopiert Tageswerte in Gestern-Helper und setzt zurück"
-trigger:
-  - platform: time
-    at: "23:59:50"
-action:
-  - service: input_number.set_value
-    target:
-      entity_id: input_number.gestern_kommen
-    data:
-      value: "{{ states('sensor.mdt_eingang_kommen') | float(0) }}"
-  - service: input_number.set_value
-    target:
-      entity_id: input_number.gestern_gehen
-    data:
-      value: "{{ states('sensor.mdt_eingang_gehen') | float(0) }}"
-mode: single
+```
+MDT Sensor (binary_sensor)
+    ↓ Impuls (off → on)
+HA Automation (24/7, browserunabhängig)
+    ↓ counter.increment
+HA Counter Entity
+    ↓ Wert lesen
+Personenzählung Card (Anzeige)
 ```
 
-> **Wichtig**: Passe die Entity-IDs (`sensor.mdt_eingang_kommen` etc.) an deine tatsächlichen Sensor-Namen an!
+1. Der MDT Bewegungsmelder sendet bei jeder Person einen kurzen Impuls (off→on→off)
+2. Eine HA-Automation erkennt den Impuls und erhöht den Counter um 1
+3. Um Mitternacht: Tageswerte werden in die Gestern-Helfer kopiert, Counter wird auf 0 gesetzt
+4. Die Card liest nur den Counter-Wert und zeigt ihn an
+
+**Vorteil**: Die Zählung läuft im HA-Backend — unabhängig davon, ob ein Browser/Dashboard offen ist.
 
 ## Alle Konfigurationsoptionen
 
@@ -125,12 +102,13 @@ mode: single
 | `entity_gehen` | string | (erforderlich) | Entity-ID für den Gehen-Zähler |
 | `card_title` | string | `"Eingang"` | Titel der Karte |
 | `card_subtitle` | string | `"Personen"` | Untertitel |
+| `net_label` | string | `"Aktuell im Gebaeude"` | Text der Netto-Anzeige (frei änderbar) |
 | `yesterday_mode` | string | `"localstorage"` | `"localstorage"` oder `"entities"` |
-| `entity_yesterday_kommen` | string | `""` | Entity für gestrige Kommen-Werte (nur bei Modus "entities") |
-| `entity_yesterday_gehen` | string | `""` | Entity für gestrige Gehen-Werte (nur bei Modus "entities") |
+| `entity_yesterday_kommen` | string | `""` | Entity für gestrige Kommen-Werte |
+| `entity_yesterday_gehen` | string | `""` | Entity für gestrige Gehen-Werte |
 | `show_yesterday` | boolean | `true` | Vortageswerte anzeigen |
 | `show_comparison` | boolean | `true` | Trend-Pfeile und Prozent anzeigen |
-| `show_net` | boolean | `true` | Netto-Personen (Kommen - Gehen) anzeigen |
+| `show_net` | boolean | `true` | Netto-Personen anzeigen |
 | `animate_change` | boolean | `true` | Puls-Animation bei Wertänderung |
 | `color_kommen` | color | `#4caf50` | Farbe für Kommen (Grün) |
 | `color_gehen` | color | `#f44336` | Farbe für Gehen (Rot) |
@@ -143,11 +121,10 @@ mode: single
 | `font_size_title` | number | `16` | Schriftgröße Titel (px) |
 | `border_radius` | number | `12` | Eckenradius Karte (px) |
 | `counter_radius` | number | `12` | Eckenradius Zählerboxen (px) |
-| `custom_css` | string | `""` | Eigenes CSS (überschreibt andere Werte) |
+| `custom_css` | string | `""` | Eigenes CSS |
 
 ## Unterstützte Entity-Typen
 
+- `counter.*` — Home Assistant Counter (empfohlen)
 - `sensor.*` — Standard-Sensor-Entitäten
-- `binary_sensor.*` — Binärsensoren
-- `counter.*` — Home Assistant Counter
 - `input_number.*` — Eingabe-Helfer

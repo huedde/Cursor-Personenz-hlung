@@ -1,0 +1,120 @@
+# ============================================================
+# Personenzählung - Home Assistant Konfiguration
+# ============================================================
+# Diese Datei nach /config/packages/personenzaehlung.yaml kopieren.
+#
+# In configuration.yaml sicherstellen, dass packages aktiviert ist:
+#   homeassistant:
+#     packages: !include_dir_named packages
+#
+# WICHTIG: Die binary_sensor Entity-IDs unten an deine
+# tatsaechlichen MDT Sensoren anpassen!
+# ============================================================
+
+# --- Zaehler fuer den aktuellen Tag ---
+counter:
+  personen_kommen_heute:
+    name: "Personen Kommen Heute"
+    initial: 0
+    step: 1
+    minimum: 0
+    icon: mdi:account-arrow-right
+
+  personen_gehen_heute:
+    name: "Personen Gehen Heute"
+    initial: 0
+    step: 1
+    minimum: 0
+    icon: mdi:account-arrow-left
+
+# --- Helfer fuer Vortageswerte ---
+input_number:
+  personen_kommen_gestern:
+    name: "Personen Kommen Gestern"
+    min: 0
+    max: 99999
+    step: 1
+    mode: box
+    icon: mdi:account-arrow-right-outline
+
+  personen_gehen_gestern:
+    name: "Personen Gehen Gestern"
+    min: 0
+    max: 99999
+    step: 1
+    mode: box
+    icon: mdi:account-arrow-left-outline
+
+# --- Template-Sensor: Aktuell im Gebaeude ---
+template:
+  - sensor:
+      - name: "Personen im Gebaeude"
+        unique_id: personen_im_gebaeude
+        state: >
+          {{ states('counter.personen_kommen_heute') | int(0)
+             - states('counter.personen_gehen_heute') | int(0) }}
+        icon: mdi:account-group
+        unit_of_measurement: "Personen"
+
+# --- Automationen ---
+automation:
+  # Kommen zaehlen: Bei jedem Impuls des Binärsensors
+  - id: personenzaehlung_kommen
+    alias: "Personenzaehlung - Kommen zaehlen"
+    description: "Zaehlt +1 bei jedem Impuls des Kommen-Sensors"
+    mode: queued
+    max: 50
+    trigger:
+      - platform: state
+        # >>> HIER DEINE ENTITY-ID EINSETZEN <<<
+        entity_id: binary_sensor.mdt_eingang_kommen
+        from: "off"
+        to: "on"
+    action:
+      - service: counter.increment
+        target:
+          entity_id: counter.personen_kommen_heute
+
+  # Gehen zaehlen: Bei jedem Impuls des Binärsensors
+  - id: personenzaehlung_gehen
+    alias: "Personenzaehlung - Gehen zaehlen"
+    description: "Zaehlt +1 bei jedem Impuls des Gehen-Sensors"
+    mode: queued
+    max: 50
+    trigger:
+      - platform: state
+        # >>> HIER DEINE ENTITY-ID EINSETZEN <<<
+        entity_id: binary_sensor.mdt_eingang_gehen
+        from: "off"
+        to: "on"
+    action:
+      - service: counter.increment
+        target:
+          entity_id: counter.personen_gehen_heute
+
+  # Mitternacht: Tageswerte sichern und zuruecksetzen
+  - id: personenzaehlung_tageswechsel
+    alias: "Personenzaehlung - Tageswechsel"
+    description: "Um Mitternacht: Werte in Gestern sichern, Heute zuruecksetzen"
+    trigger:
+      - platform: time
+        at: "00:00:00"
+    action:
+      # Heutige Werte als Gestern speichern
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.personen_kommen_gestern
+        data:
+          value: "{{ states('counter.personen_kommen_heute') | float(0) }}"
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.personen_gehen_gestern
+        data:
+          value: "{{ states('counter.personen_gehen_heute') | float(0) }}"
+      # Zaehler zuruecksetzen
+      - service: counter.reset
+        target:
+          entity_id:
+            - counter.personen_kommen_heute
+            - counter.personen_gehen_heute
+    mode: single

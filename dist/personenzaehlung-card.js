@@ -261,6 +261,11 @@ class PersonenzaehlungCardEditor extends HTMLElement {
             Waehle deine MDT Binaersensoren und klicke auf <strong>"Einrichten"</strong>.
           </div>
           <div class="editor-row">
+            <label>Titel der Karte (wird auch fuer Entity-Namen verwendet)</label>
+            <input type="text" id="card_title" placeholder="z.B. Seiteneingang Gebaeude 441" />
+            <span class="entity-hint">Der Titel bestimmt die Namen der erstellten Counter und Helper</span>
+          </div>
+          <div class="editor-row">
             <label>MDT Sensor "Kommen" (Binaersensor)</label>
             <div class="entity-picker" data-field="source_kommen" data-filter="binary_sensor">
               <input type="text" class="ep-input" placeholder="binary_sensor.mdt_eingang_kommen..." autocomplete="off" />
@@ -276,18 +281,8 @@ class PersonenzaehlungCardEditor extends HTMLElement {
               <div class="ep-list"></div>
             </div>
           </div>
-          <div class="editor-row">
-            <label>Prefix fuer Entity-Namen (optional)</label>
-            <input type="text" id="setup_prefix" placeholder="personen" value="personen" />
-            <span class="entity-hint">Erzeugt z.B. counter.personen_kommen_heute, input_number.personen_kommen_gestern</span>
-          </div>
           <div class="setup-preview" id="setup_preview">
-            Vorschau der Entitaeten:<br/>
-            counter.personen_kommen_heute<br/>
-            counter.personen_gehen_heute<br/>
-            input_number.personen_kommen_gestern<br/>
-            input_number.personen_gehen_gestern<br/>
-            + 3 Automationen (Kommen/Gehen zaehlen, Tageswechsel)
+            Bitte zuerst einen Kartentitel eingeben...
           </div>
           <button id="setup_btn" class="setup-btn">Backend automatisch einrichten</button>
           <div id="setup_log" class="setup-log"></div>
@@ -312,10 +307,6 @@ class PersonenzaehlungCardEditor extends HTMLElement {
               <div class="ep-list"></div>
             </div>
             <span class="entity-hint">binary_sensor.* / sensor.* / counter.* / input_number.*</span>
-          </div>
-          <div class="editor-row">
-            <label>Titel der Karte</label>
-            <input type="text" id="card_title" placeholder="z.B. Seitentuer zum Gebaeude 441" />
           </div>
           <div class="editor-row">
             <label>Untertitel</label>
@@ -580,15 +571,13 @@ class PersonenzaehlungCardEditor extends HTMLElement {
       const evtType = el.tagName === "SELECT" || el.tagName === "TEXTAREA" ? "change" : "input";
       el.addEventListener(evtType, () => {
         if (id === "yesterday_mode") this._toggleHelperSection();
+        if (id === "card_title") this._updateSetupPreview();
         this._updateConfig();
       });
     });
 
     const setupBtn = this.querySelector("#setup_btn");
     if (setupBtn) setupBtn.addEventListener("click", () => this._runSetup());
-
-    const prefixInput = this.querySelector("#setup_prefix");
-    if (prefixInput) prefixInput.addEventListener("input", () => this._updateSetupPreview());
   }
 
   _loadConfig() {
@@ -632,6 +621,7 @@ class PersonenzaehlungCardEditor extends HTMLElement {
 
     this._updateRangeDisplays();
     this._updateCSSPreview();
+    this._updateSetupPreview();
   }
 
   _getVal(id) {
@@ -711,20 +701,27 @@ class PersonenzaehlungCardEditor extends HTMLElement {
   }
 
   _getSetupSlug() {
-    const raw = (this._getVal("setup_prefix") || "personen").trim();
-    return raw.toLowerCase().replace(/[^a-z0-9]/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "") || "personen";
+    const raw = (this._getVal("card_title") || "").trim();
+    if (!raw) return "";
+    return raw.toLowerCase()
+      .replace(/[äÄ]/g, "ae").replace(/[öÖ]/g, "oe").replace(/[üÜ]/g, "ue").replace(/[ß]/g, "ss")
+      .replace(/[^a-z0-9]/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "");
   }
 
   _updateSetupPreview() {
     const preview = this.querySelector("#setup_preview");
     if (!preview) return;
     const s = this._getSetupSlug();
+    if (!s) {
+      preview.innerHTML = "Bitte zuerst einen Kartentitel eingeben...";
+      return;
+    }
     preview.innerHTML =
       "Vorschau der Entitaeten:<br/>" +
-      `counter.${s}_kommen_heute<br/>` +
-      `counter.${s}_gehen_heute<br/>` +
-      `input_number.${s}_kommen_gestern<br/>` +
-      `input_number.${s}_gehen_gestern<br/>` +
+      `<strong>counter.${s}_kommen_heute</strong><br/>` +
+      `<strong>counter.${s}_gehen_heute</strong><br/>` +
+      `<strong>input_number.${s}_kommen_gestern</strong><br/>` +
+      `<strong>input_number.${s}_gehen_gestern</strong><br/>` +
       "+ 3 Automationen (Kommen/Gehen zaehlen, Tageswechsel)";
   }
 
@@ -742,6 +739,11 @@ class PersonenzaehlungCardEditor extends HTMLElement {
     const sensorKommen = this._getEntityVal("source_kommen");
     const sensorGehen = this._getEntityVal("source_gehen");
 
+    const slug = this._getSetupSlug();
+    if (!slug) {
+      this._logSetup("Bitte zuerst einen Kartentitel eingeben!", "error");
+      return;
+    }
     if (!sensorKommen || !sensorGehen) {
       this._logSetup("Bitte beide MDT Sensoren auswaehlen!", "error");
       return;
@@ -753,8 +755,8 @@ class PersonenzaehlungCardEditor extends HTMLElement {
     btn.disabled = true;
     btn.textContent = "Wird eingerichtet...";
 
-    const slug = this._getSetupSlug();
-    const display = slug.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+    const cardTitle = this._getVal("card_title").trim();
+    const display = cardTitle;
 
     const helpers = [
       {

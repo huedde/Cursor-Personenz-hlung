@@ -278,6 +278,13 @@ class PersonenzaehlungCardEditor extends HTMLElement {
             </select>
           </div>
           <div class="editor-row">
+            <label>Korrektur: Netto nie negativ (Bewegungsmelder)</label>
+            <select id="auto_balance">
+              <option value="false">Nein</option>
+              <option value="true">Ja</option>
+            </select>
+          </div>
+          <div class="editor-row">
             <label>Animation bei Aenderung</label>
             <select id="animate_change">
               <option value="true">Ja</option>
@@ -571,7 +578,7 @@ class PersonenzaehlungCardEditor extends HTMLElement {
     const fields = [
       "card_title", "card_subtitle", "net_label",
       "yesterday_mode",
-      "show_yesterday", "show_comparison", "show_net", "show_door_details", "animate_change",
+      "show_yesterday", "show_comparison", "show_net", "show_door_details", "auto_balance", "animate_change",
       "color_kommen", "color_gehen", "bg_color", "text_color",
       "counter_bg", "color_trend_up", "color_trend_down",
       "font_size_counter", "font_size_title",
@@ -616,6 +623,7 @@ class PersonenzaehlungCardEditor extends HTMLElement {
     setVal("show_comparison", c.show_comparison !== false ? "true" : "false");
     setVal("show_net", c.show_net !== false ? "true" : "false");
     setVal("show_door_details", c.show_door_details !== false ? "true" : "false");
+    setVal("auto_balance", c.auto_balance ? "true" : "false");
     setVal("animate_change", c.animate_change !== false ? "true" : "false");
     setVal("color_kommen", c.color_kommen || "#4caf50");
     setVal("color_gehen", c.color_gehen || "#f44336");
@@ -653,6 +661,7 @@ class PersonenzaehlungCardEditor extends HTMLElement {
       show_comparison: this._getVal("show_comparison") === "true",
       show_net: this._getVal("show_net") === "true",
       show_door_details: this._getVal("show_door_details") === "true",
+      auto_balance: this._getVal("auto_balance") === "true",
       animate_change: this._getVal("animate_change") === "true",
       color_kommen: this._getVal("color_kommen"),
       color_gehen: this._getVal("color_gehen"),
@@ -1149,6 +1158,7 @@ class PersonenzaehlungCard extends HTMLElement {
       show_comparison: true,
       show_net: true,
       show_door_details: true,
+      auto_balance: false,
       animate_change: true,
       color_kommen: "#4caf50",
       color_gehen: "#f44336",
@@ -1221,6 +1231,7 @@ class PersonenzaehlungCard extends HTMLElement {
       show_comparison: true,
       show_net: true,
       show_door_details: true,
+      auto_balance: false,
       animate_change: true,
       color_kommen: "#4caf50",
       color_gehen: "#f44336",
@@ -1600,20 +1611,35 @@ class PersonenzaehlungCard extends HTMLElement {
 
     for (let i = 0; i < doors.length; i++) {
       const door = doors[i];
-      const dk = this._getEntityValue(door.entity_kommen);
-      const dg = this._getEntityValue(door.entity_gehen);
+      const rawKommen = this._getEntityValue(door.entity_kommen);
+      const rawGehen = this._getEntityValue(door.entity_gehen);
+
+      // Korrektur: Netto pro Tuer nie negativ
+      let dk = rawKommen;
+      let dg = rawGehen;
+      if (c.auto_balance && dg > dk) {
+        dk = dg;
+      }
+
       totalKommen += dk;
       totalGehen += dg;
 
       let yk = null;
       let yg = null;
       if (c.yesterday_mode === "entities") {
-        yk = door.entity_yesterday_kommen
+        let rawYK = door.entity_yesterday_kommen
           ? this._getEntityValue(door.entity_yesterday_kommen)
           : null;
-        yg = door.entity_yesterday_gehen
+        let rawYG = door.entity_yesterday_gehen
           ? this._getEntityValue(door.entity_yesterday_gehen)
           : null;
+
+        // gleiche Korrektur auch fuer Vortag zur Anzeige
+        if (c.auto_balance && rawYK !== null && rawYG !== null && rawYG > rawYK) {
+          rawYK = rawYG;
+        }
+        yk = rawYK;
+        yg = rawYG;
       } else if (this._storages[i]) {
         this._storages[i].update(dk, dg);
         const y = this._storages[i].getYesterday();

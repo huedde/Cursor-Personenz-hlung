@@ -36,10 +36,11 @@ class PersonenzaehlungCardEditor extends HTMLElement {
   setConfig(config) {
     this._config = { ...config };
     if (config.doors && config.doors.length > 0) {
+      // vorhandene Konfiguration inkl. Quellen wieder in den Setup-Editor laden
       this._setupDoors = config.doors.map((d) => ({
         name: d.name || "",
-        source_kommen: "",
-        source_gehen: "",
+        source_kommen: d.source_kommen || "",
+        source_gehen: d.source_gehen || "",
       }));
     } else if (config.entity_kommen) {
       this._setupDoors = [
@@ -844,6 +845,8 @@ class PersonenzaehlungCardEditor extends HTMLElement {
 
       doors.push({
         name: d.name,
+        source_kommen: d.source_kommen,
+        source_gehen: d.source_gehen,
         entity_kommen: `counter.${cardSlug}_${doorSlug}_kommen_heute`,
         entity_gehen: `counter.${cardSlug}_${doorSlug}_gehen_heute`,
         entity_yesterday_kommen: `input_number.${cardSlug}_${doorSlug}_kommen_gestern`,

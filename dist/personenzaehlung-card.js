@@ -217,13 +217,6 @@ class PersonenzaehlungCardEditor extends HTMLElement {
         .setup-log-item.success { color: #4caf50; }
         .setup-log-item.error { color: #f44336; }
         .setup-log-item.info { color: var(--secondary-text-color, #999); }
-        .setup-preview {
-          background: var(--secondary-background-color, #f5f5f5);
-          border-radius: 6px; padding: 10px 12px;
-          font-family: 'Courier New', monospace;
-          font-size: 11px; line-height: 1.6;
-          color: var(--primary-text-color, #333); margin-top: 8px;
-        }
       </style>
       <div class="editor-container">
 
@@ -239,9 +232,6 @@ class PersonenzaehlungCardEditor extends HTMLElement {
           </div>
           <div id="doors-setup-container"></div>
           <button id="add_door_btn" class="add-door-btn">+ Weitere Tuer hinzufuegen</button>
-          <div class="setup-preview" id="setup_preview">
-            Bitte Kartentitel und Tuernamen eingeben...
-          </div>
           <div style="display:flex; gap:8px; margin-top:12px;">
             <button id="setup_btn" class="setup-btn">Backend einrichten</button>
             <button id="cleanup_btn" class="setup-btn cleanup-btn">Backend entfernen</button>
@@ -438,7 +428,6 @@ class PersonenzaehlungCardEditor extends HTMLElement {
       })
       .join("");
 
-    this._updateSetupPreview();
   }
 
   _esc(str) {
@@ -458,13 +447,11 @@ class PersonenzaehlungCardEditor extends HTMLElement {
         this._setupDoors[idx][field] = input.value;
         this._filterEntityList(picker, input.value);
         picker.classList.add("open");
-        this._updateSetupPreview();
         return;
       }
       if (input.classList.contains("door-name")) {
         const idx = parseInt(input.dataset.doorIdx);
         this._setupDoors[idx].name = input.value;
-        this._updateSetupPreview();
       }
     });
 
@@ -504,7 +491,6 @@ class PersonenzaehlungCardEditor extends HTMLElement {
         input.value = item.dataset.entity;
         this._setupDoors[idx][field] = item.dataset.entity;
         picker.classList.remove("open");
-        this._updateSetupPreview();
         return;
       }
 
@@ -601,7 +587,6 @@ class PersonenzaehlungCardEditor extends HTMLElement {
           ? "change"
           : "input";
       el.addEventListener(evtType, () => {
-        if (id === "card_title") this._updateSetupPreview();
         this._updateConfig();
       });
     });
@@ -647,7 +632,6 @@ class PersonenzaehlungCardEditor extends HTMLElement {
 
     this._updateRangeDisplays();
     this._updateCSSPreview();
-    this._updateSetupPreview();
   }
 
   _getVal(id) {
@@ -738,37 +722,6 @@ class PersonenzaehlungCardEditor extends HTMLElement {
       .replace(/^_|_$/g, "");
   }
 
-  _updateSetupPreview() {
-    const preview = this.querySelector("#setup_preview");
-    if (!preview) return;
-    const cardSlug = this._slugify(this._getVal("card_title"));
-    if (!cardSlug) {
-      preview.innerHTML = "Bitte Kartentitel eingeben...";
-      return;
-    }
-
-    const lines = [];
-    this._setupDoors.forEach((door, idx) => {
-      const doorSlug = this._slugify(door.name);
-      const label = door.name || `Tuer ${idx + 1}`;
-      if (!doorSlug) {
-        lines.push(`<strong>${label}:</strong> Bitte Tuername eingeben`);
-        return;
-      }
-      lines.push(
-        `<strong>${label}:</strong><br/>` +
-          `&nbsp; counter.${cardSlug}_${doorSlug}_kommen_heute<br/>` +
-          `&nbsp; counter.${cardSlug}_${doorSlug}_gehen_heute<br/>` +
-          `&nbsp; input_number.${cardSlug}_${doorSlug}_kommen_gestern<br/>` +
-          `&nbsp; input_number.${cardSlug}_${doorSlug}_gehen_gestern`
-      );
-    });
-    lines.push(
-      `+ ${this._setupDoors.length * 2 + 1} Automationen (pro Tuer Kommen/Gehen + 1x Tageswechsel)`
-    );
-    preview.innerHTML = lines.join("<br/>");
-  }
-
   _logSetup(msg, type) {
     const log = this.querySelector("#setup_log");
     if (!log) return;
@@ -806,6 +759,7 @@ class PersonenzaehlungCardEditor extends HTMLElement {
 
     const cardTitle = this._getVal("card_title").trim();
     const doors = [];
+    const allCreatedIds = [];
     let ok = true;
 
     for (let i = 0; i < this._setupDoors.length; i++) {
@@ -829,6 +783,7 @@ class PersonenzaehlungCardEditor extends HTMLElement {
         }
         try {
           await this._hass.callWS({ type: `${h.domain}/create`, name: h.name, icon: h.icon, ...h.opts });
+          allCreatedIds.push(eid);
           this._logSetup(`  ${eid} erstellt`, "success");
         } catch (err) {
           const msg = err.message || String(err);
@@ -870,6 +825,7 @@ class PersonenzaehlungCardEditor extends HTMLElement {
         try {
           this._logSetup(`  Automation: ${a.config.alias}...`);
           await this._hass.callApi("POST", `config/automation/config/${a.id}`, { id: a.id, ...a.config });
+          allCreatedIds.push(`automation:${a.id}`);
           this._logSetup(`  Automation erstellt`, "success");
         } catch (err) {
           this._logSetup(`  Fehler: ${err.message || err}`, "error");
@@ -909,10 +865,73 @@ class PersonenzaehlungCardEditor extends HTMLElement {
         condition: [],
         action: midnightActions,
       });
+      allCreatedIds.push(`automation:${mId}`);
       this._logSetup("  Tageswechsel-Automation erstellt", "success");
     } catch (err) {
       this._logSetup(`  Fehler: ${err.message || err}`, "error");
       ok = false;
+    }
+
+    // Label erstellen und allen Entitaeten zuweisen
+    if (ok && allCreatedIds.length > 0) {
+      this._logSetup("=== Gruppierung (Label) ===");
+      const labelName = `${cardTitle} (automatic)`;
+      let labelId = null;
+
+      try {
+        const result = await this._hass.callWS({
+          type: "config/label_registry/create",
+          name: labelName,
+          icon: "mdi:account-group",
+          color: "#4CAF50",
+        });
+        labelId = result.label_id;
+        this._logSetup(`  Label "${labelName}" erstellt`, "success");
+      } catch (err) {
+        try {
+          const labels = await this._hass.callWS({ type: "config/label_registry/list" });
+          const existing = labels.find((l) => l.name === labelName);
+          if (existing) {
+            labelId = existing.label_id;
+            this._logSetup(`  Label "${labelName}" existiert bereits`, "info");
+          }
+        } catch (e) {
+          this._logSetup("  Label-System nicht verfuegbar", "info");
+        }
+      }
+
+      if (labelId) {
+        try {
+          const entityReg = await this._hass.callWS({ type: "config/entity_registry/list" });
+          let labeled = 0;
+
+          for (const cid of allCreatedIds) {
+            let entry;
+            if (cid.startsWith("automation:")) {
+              const uniqueId = cid.replace("automation:", "");
+              entry = entityReg.find((e) => e.unique_id === uniqueId);
+            } else {
+              entry = entityReg.find((e) => e.entity_id === cid);
+            }
+
+            if (entry) {
+              const currentLabels = entry.labels || [];
+              if (!currentLabels.includes(labelId)) {
+                await this._hass.callWS({
+                  type: "config/entity_registry/update",
+                  entity_id: entry.entity_id,
+                  labels: [...currentLabels, labelId],
+                });
+                labeled++;
+              }
+            }
+          }
+
+          this._logSetup(`  ${labeled} Entitaeten mit Label gruppiert`, "success");
+        } catch (err) {
+          this._logSetup(`  Gruppierung fehlgeschlagen: ${err.message || err}`, "info");
+        }
+      }
     }
 
     if (ok) {
@@ -1006,10 +1025,29 @@ class PersonenzaehlungCardEditor extends HTMLElement {
       }
     }
 
+    this._logSetup("=== Label entfernen ===");
+    const cardTitle = this._getVal("card_title").trim();
+    const labelName = `${cardTitle} (automatic)`;
+    try {
+      const labels = await this._hass.callWS({ type: "config/label_registry/list" });
+      const existing = labels.find((l) => l.name === labelName);
+      if (existing) {
+        await this._hass.callWS({
+          type: "config/label_registry/delete",
+          label_id: existing.label_id,
+        });
+        this._logSetup(`  Label "${labelName}" entfernt`, "success");
+      } else {
+        this._logSetup("  Label nicht vorhanden", "info");
+      }
+    } catch (err) {
+      this._logSetup(`  Label entfernen: ${err.message || err}`, "info");
+    }
+
     this._config.doors = [];
     this._updateConfig();
     this._renderDoorsSetup();
-    this._logSetup("Fertig! Backend-Entitaeten und Automationen entfernt.", "success");
+    this._logSetup("Fertig! Backend-Entitaeten, Automationen und Label entfernt.", "success");
 
     btn.disabled = false;
     btn.textContent = "Backend entfernen";

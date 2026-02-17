@@ -11,39 +11,14 @@ Custom Lovelace Card für die Anzeige von Personenzählung über MDT Bewegungsme
 - **Vortagsvergleich**: Automatisch via HA-Helper oder localStorage
 - **Trend-Anzeige**: Pfeile und Prozentwerte zeigen Veränderungen zum Vortag
 - **Netto-Anzeige**: Berechnet Personen im Gebäude (Kommen - Gehen), Text frei änderbar
+- **1-Klick Setup**: Automatische Erstellung aller Counter, Helper und Automationen direkt aus dem Editor
 - **Visueller Editor**: GUI-Editor mit Suchfeld für Entitäten und CSS-Anpassung
 - **Animationen**: Puls-Animation bei Wertänderungen
 - **Vollständig anpassbar**: Farben, Schriftgrößen, Eckenradien, eigenes CSS
 
-## Schnellstart (3 Schritte)
+## Schnellstart (2 Schritte)
 
-### Schritt 1: HA-Backend einrichten (Zählung)
-
-Die Datei `ha-config/personenzaehlung.yaml` nach `/config/packages/` kopieren.
-
-In `configuration.yaml` sicherstellen, dass Packages aktiviert sind:
-
-```yaml
-homeassistant:
-  packages: !include_dir_named packages
-```
-
-**Wichtig**: In der Datei die Entity-IDs an deine MDT-Sensoren anpassen:
-
-```yaml
-# In personenzaehlung.yaml diese Zeilen suchen und ändern:
-entity_id: binary_sensor.mdt_eingang_kommen  # ← Dein Kommen-Sensor
-entity_id: binary_sensor.mdt_eingang_gehen   # ← Dein Gehen-Sensor
-```
-
-Home Assistant neu starten. Danach existieren:
-- `counter.personen_kommen_heute` — Zählt Kommen-Impulse
-- `counter.personen_gehen_heute` — Zählt Gehen-Impulse
-- `input_number.personen_kommen_gestern` — Gestern Kommen
-- `input_number.personen_gehen_gestern` — Gestern Gehen
-- `sensor.personen_im_gebaeude` — Netto-Personen
-
-### Schritt 2: Card installieren
+### Schritt 1: Card installieren
 
 **HACS (empfohlen):**
 1. HACS → Frontend → Drei Punkte → Benutzerdefinierte Repositories
@@ -57,11 +32,26 @@ Home Assistant neu starten. Danach existieren:
    - Typ: JavaScript-Modul
 3. Browser-Cache leeren (Strg+Shift+R)
 
-### Schritt 3: Karte konfigurieren
+### Schritt 2: Karte hinzufügen & automatisch einrichten
 
-Dashboard bearbeiten → Karte hinzufügen → "Personenzählung" suchen.
+1. Dashboard bearbeiten → Karte hinzufügen → "Personenzählung" suchen
+2. Im Editor oben unter **"Automatische Einrichtung"**:
+   - Deine zwei MDT Binärsensoren auswählen (Kommen + Gehen)
+   - Optional: Prefix anpassen (Standard: `personen`)
+   - Auf **"Backend automatisch einrichten"** klicken
+3. Fertig! Der Setup-Assistent erstellt automatisch:
+   - `counter.personen_kommen_heute` — Zählt Kommen-Impulse
+   - `counter.personen_gehen_heute` — Zählt Gehen-Impulse
+   - `input_number.personen_kommen_gestern` — Gestern Kommen
+   - `input_number.personen_gehen_gestern` — Gestern Gehen
+   - 3 Automationen (Kommen/Gehen zählen + Mitternacht-Reset)
+   - Die Card-Konfiguration wird automatisch ausgefüllt
 
-Im Editor die Counter-Entitäten auswählen:
+> **Tipp**: Kein manuelles YAML nötig! Alles wird direkt in HA erstellt.
+
+### Alternative: Manuell per YAML
+
+Falls du das Backend lieber manuell einrichten möchtest, kopiere `ha-config/personenzaehlung.yaml` nach `/config/packages/` und passe die Sensor-Entity-IDs an. Dann konfiguriere die Card:
 
 ```yaml
 type: custom:personenzaehlung-card

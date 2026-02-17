@@ -6,7 +6,7 @@
  * Visueller Editor mit CSS-Anpassungen und Entity-Auswahl
  */
 
-const CARD_VERSION = "2.0.0";
+const CARD_VERSION = "2.1.0";
 
 // ============================================================
 // EDITOR (Visueller Konfigurations-Editor)
@@ -212,8 +212,86 @@ class PersonenzaehlungCardEditor extends HTMLElement {
           padding: 4px;
         }
         .entity-picker .ep-clear:hover { opacity: 0.8; }
+        /* Setup-Assistent */
+        .setup-btn {
+          width: 100%;
+          padding: 12px;
+          background: var(--primary-color, #03a9f4);
+          color: white;
+          border: none;
+          border-radius: 8px;
+          font-size: 14px;
+          font-weight: 600;
+          cursor: pointer;
+          margin-top: 12px;
+          transition: background 0.2s, opacity 0.2s;
+        }
+        .setup-btn:hover { filter: brightness(1.1); }
+        .setup-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .setup-log {
+          margin-top: 12px;
+          max-height: 220px;
+          overflow-y: auto;
+          font-family: 'Courier New', monospace;
+          font-size: 12px;
+          line-height: 1.5;
+        }
+        .setup-log-item { padding: 2px 0; }
+        .setup-log-item.success { color: #4caf50; }
+        .setup-log-item.error { color: #f44336; }
+        .setup-log-item.info { color: var(--secondary-text-color, #999); }
+        .setup-preview {
+          background: var(--secondary-background-color, #f5f5f5);
+          border-radius: 6px;
+          padding: 10px 12px;
+          font-family: 'Courier New', monospace;
+          font-size: 11px;
+          line-height: 1.6;
+          color: var(--primary-text-color, #333);
+          margin-top: 8px;
+        }
+        .setup-section .info-box { margin-bottom: 16px; }
       </style>
       <div class="editor-container">
+
+        <div class="editor-section setup-section">
+          <h3>Automatische Einrichtung</h3>
+          <div class="info-box">
+            Erstellt automatisch alle Counter, Helper und Automationen in Home Assistant.<br/>
+            Waehle deine MDT Binaersensoren und klicke auf <strong>"Einrichten"</strong>.
+          </div>
+          <div class="editor-row">
+            <label>MDT Sensor "Kommen" (Binaersensor)</label>
+            <div class="entity-picker" data-field="source_kommen" data-filter="binary_sensor">
+              <input type="text" class="ep-input" placeholder="binary_sensor.mdt_eingang_kommen..." autocomplete="off" />
+              <span class="ep-clear">&times;</span>
+              <div class="ep-list"></div>
+            </div>
+          </div>
+          <div class="editor-row">
+            <label>MDT Sensor "Gehen" (Binaersensor)</label>
+            <div class="entity-picker" data-field="source_gehen" data-filter="binary_sensor">
+              <input type="text" class="ep-input" placeholder="binary_sensor.mdt_eingang_gehen..." autocomplete="off" />
+              <span class="ep-clear">&times;</span>
+              <div class="ep-list"></div>
+            </div>
+          </div>
+          <div class="editor-row">
+            <label>Prefix fuer Entity-Namen (optional)</label>
+            <input type="text" id="setup_prefix" placeholder="personen" value="personen" />
+            <span class="entity-hint">Erzeugt z.B. counter.personen_kommen_heute, input_number.personen_kommen_gestern</span>
+          </div>
+          <div class="setup-preview" id="setup_preview">
+            Vorschau der Entitaeten:<br/>
+            counter.personen_kommen_heute<br/>
+            counter.personen_gehen_heute<br/>
+            input_number.personen_kommen_gestern<br/>
+            input_number.personen_gehen_gestern<br/>
+            + 3 Automationen (Kommen/Gehen zaehlen, Tageswechsel)
+          </div>
+          <button id="setup_btn" class="setup-btn">Backend automatisch einrichten</button>
+          <div id="setup_log" class="setup-log"></div>
+        </div>
 
         <div class="editor-section">
           <h3>Entitaeten</h3>
@@ -413,15 +491,20 @@ class PersonenzaehlungCardEditor extends HTMLElement {
       input.addEventListener("input", () => {
         this._filterEntityList(picker, input.value);
         picker.classList.add("open");
-        this._config[field] = input.value;
-        this._updateConfig();
+        if (!field.startsWith("source_")) {
+          this._config[field] = input.value;
+          this._updateConfig();
+        }
+        if (field.startsWith("source_")) this._updateSetupPreview();
       });
 
       clear.addEventListener("mousedown", (e) => {
         e.preventDefault();
         input.value = "";
-        this._config[field] = "";
-        this._updateConfig();
+        if (!field.startsWith("source_")) {
+          this._config[field] = "";
+          this._updateConfig();
+        }
         this._filterEntityList(picker, "");
         input.focus();
       });
@@ -431,9 +514,12 @@ class PersonenzaehlungCardEditor extends HTMLElement {
         const item = e.target.closest(".ep-item");
         if (!item) return;
         input.value = item.dataset.entity;
-        this._config[field] = item.dataset.entity;
         picker.classList.remove("open");
-        this._updateConfig();
+        if (!field.startsWith("source_")) {
+          this._config[field] = item.dataset.entity;
+          this._updateConfig();
+        }
+        if (field.startsWith("source_")) this._updateSetupPreview();
       });
 
       input.addEventListener("blur", () => {
@@ -445,7 +531,10 @@ class PersonenzaehlungCardEditor extends HTMLElement {
   _filterEntityList(picker, query) {
     const list = picker.querySelector(".ep-list");
     const q = (query || "").toLowerCase();
-    const entities = this._entityCache;
+    const filter = picker.dataset.filter;
+    const entities = filter
+      ? this._entityCache.filter((e) => e.startsWith(filter + "."))
+      : this._entityCache;
     const filtered = entities.filter((eid) => {
       if (!q) return true;
       const friendly = this._hass?.states[eid]?.attributes?.friendly_name || "";
@@ -494,6 +583,12 @@ class PersonenzaehlungCardEditor extends HTMLElement {
         this._updateConfig();
       });
     });
+
+    const setupBtn = this.querySelector("#setup_btn");
+    if (setupBtn) setupBtn.addEventListener("click", () => this._runSetup());
+
+    const prefixInput = this.querySelector("#setup_prefix");
+    if (prefixInput) prefixInput.addEventListener("input", () => this._updateSetupPreview());
   }
 
   _loadConfig() {
@@ -613,6 +708,211 @@ class PersonenzaehlungCardEditor extends HTMLElement {
 .counter-value { font-size: ${this._getVal("font_size_counter") || 32}px; }
 .kommen { color: ${this._getVal("color_kommen") || "#4caf50"}; }
 .gehen  { color: ${this._getVal("color_gehen") || "#f44336"}; }`;
+  }
+
+  _getSetupSlug() {
+    const raw = (this._getVal("setup_prefix") || "personen").trim();
+    return raw.toLowerCase().replace(/[^a-z0-9]/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "") || "personen";
+  }
+
+  _updateSetupPreview() {
+    const preview = this.querySelector("#setup_preview");
+    if (!preview) return;
+    const s = this._getSetupSlug();
+    preview.innerHTML =
+      "Vorschau der Entitaeten:<br/>" +
+      `counter.${s}_kommen_heute<br/>` +
+      `counter.${s}_gehen_heute<br/>` +
+      `input_number.${s}_kommen_gestern<br/>` +
+      `input_number.${s}_gehen_gestern<br/>` +
+      "+ 3 Automationen (Kommen/Gehen zaehlen, Tageswechsel)";
+  }
+
+  _logSetup(msg, type) {
+    const log = this.querySelector("#setup_log");
+    if (!log) return;
+    const item = document.createElement("div");
+    item.className = "setup-log-item" + (type ? " " + type : "");
+    item.textContent = msg;
+    log.appendChild(item);
+    log.scrollTop = log.scrollHeight;
+  }
+
+  async _runSetup() {
+    const sensorKommen = this._getEntityVal("source_kommen");
+    const sensorGehen = this._getEntityVal("source_gehen");
+
+    if (!sensorKommen || !sensorGehen) {
+      this._logSetup("Bitte beide MDT Sensoren auswaehlen!", "error");
+      return;
+    }
+
+    const btn = this.querySelector("#setup_btn");
+    const log = this.querySelector("#setup_log");
+    if (log) log.innerHTML = "";
+    btn.disabled = true;
+    btn.textContent = "Wird eingerichtet...";
+
+    const slug = this._getSetupSlug();
+    const display = slug.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+
+    const helpers = [
+      {
+        domain: "counter",
+        id: `${slug}_kommen_heute`,
+        name: `${display} Kommen Heute`,
+        icon: "mdi:account-arrow-right",
+        opts: { initial: 0, step: 1, minimum: 0 },
+      },
+      {
+        domain: "counter",
+        id: `${slug}_gehen_heute`,
+        name: `${display} Gehen Heute`,
+        icon: "mdi:account-arrow-left",
+        opts: { initial: 0, step: 1, minimum: 0 },
+      },
+      {
+        domain: "input_number",
+        id: `${slug}_kommen_gestern`,
+        name: `${display} Kommen Gestern`,
+        icon: "mdi:account-arrow-right-outline",
+        opts: { min: 0, max: 99999, step: 1, mode: "box" },
+      },
+      {
+        domain: "input_number",
+        id: `${slug}_gehen_gestern`,
+        name: `${display} Gehen Gestern`,
+        icon: "mdi:account-arrow-left-outline",
+        opts: { min: 0, max: 99999, step: 1, mode: "box" },
+      },
+    ];
+
+    let ok = true;
+
+    this._logSetup("=== Helper-Entitaeten erstellen ===");
+    for (const h of helpers) {
+      const eid = `${h.domain}.${h.id}`;
+      if (this._hass.states[eid]) {
+        this._logSetup(`${eid} existiert bereits, uebersprungen.`, "info");
+        continue;
+      }
+      try {
+        this._logSetup(`Erstelle ${eid}...`);
+        await this._hass.callWS({
+          type: `${h.domain}/create`,
+          name: h.name,
+          icon: h.icon,
+          ...h.opts,
+        });
+        this._logSetup(`  ${eid} erstellt`, "success");
+      } catch (err) {
+        const msg = err.message || String(err);
+        if (msg.includes("already") || msg.includes("exists")) {
+          this._logSetup(`  ${eid} existiert bereits.`, "info");
+        } else {
+          this._logSetup(`  Fehler: ${msg}`, "error");
+          ok = false;
+        }
+      }
+    }
+
+    this._logSetup("=== Automationen erstellen ===");
+    const automations = [
+      {
+        id: `personenzaehlung_${slug}_kommen`,
+        config: {
+          alias: `Personenzaehlung ${display} - Kommen`,
+          description: `Zaehlt +1 bei Impuls von ${sensorKommen}`,
+          mode: "queued",
+          max: 50,
+          trigger: [{ platform: "state", entity_id: sensorKommen, from: "off", to: "on" }],
+          condition: [],
+          action: [{ service: "counter.increment", target: { entity_id: `counter.${slug}_kommen_heute` } }],
+        },
+      },
+      {
+        id: `personenzaehlung_${slug}_gehen`,
+        config: {
+          alias: `Personenzaehlung ${display} - Gehen`,
+          description: `Zaehlt +1 bei Impuls von ${sensorGehen}`,
+          mode: "queued",
+          max: 50,
+          trigger: [{ platform: "state", entity_id: sensorGehen, from: "off", to: "on" }],
+          condition: [],
+          action: [{ service: "counter.increment", target: { entity_id: `counter.${slug}_gehen_heute` } }],
+        },
+      },
+      {
+        id: `personenzaehlung_${slug}_tageswechsel`,
+        config: {
+          alias: `Personenzaehlung ${display} - Tageswechsel`,
+          description: "Mitternacht: Tageswerte sichern, Zaehler zuruecksetzen",
+          mode: "single",
+          trigger: [{ platform: "time", at: "00:00:00" }],
+          condition: [],
+          action: [
+            {
+              service: "input_number.set_value",
+              target: { entity_id: `input_number.${slug}_kommen_gestern` },
+              data: { value: `{{ states('counter.${slug}_kommen_heute') | float(0) }}` },
+            },
+            {
+              service: "input_number.set_value",
+              target: { entity_id: `input_number.${slug}_gehen_gestern` },
+              data: { value: `{{ states('counter.${slug}_gehen_heute') | float(0) }}` },
+            },
+            {
+              service: "counter.reset",
+              target: { entity_id: [`counter.${slug}_kommen_heute`, `counter.${slug}_gehen_heute`] },
+            },
+          ],
+        },
+      },
+    ];
+
+    for (const a of automations) {
+      try {
+        this._logSetup(`Erstelle: ${a.config.alias}...`);
+        await this._hass.callApi("POST", `config/automation/config/${a.id}`, {
+          id: a.id,
+          ...a.config,
+        });
+        this._logSetup(`  Automation erstellt`, "success");
+      } catch (err) {
+        this._logSetup(`  Fehler: ${err.message || err}`, "error");
+        ok = false;
+      }
+    }
+
+    if (ok) {
+      this._logSetup("=== Card-Konfiguration setzen ===");
+      const mapping = {
+        entity_kommen: `counter.${slug}_kommen_heute`,
+        entity_gehen: `counter.${slug}_gehen_heute`,
+        entity_yesterday_kommen: `input_number.${slug}_kommen_gestern`,
+        entity_yesterday_gehen: `input_number.${slug}_gehen_gestern`,
+      };
+
+      for (const [field, value] of Object.entries(mapping)) {
+        const picker = this.querySelector(`.entity-picker[data-field="${field}"]`);
+        if (picker) picker.querySelector(".ep-input").value = value;
+        this._config[field] = value;
+      }
+
+      const modeSelect = this.querySelector("#yesterday_mode");
+      if (modeSelect) modeSelect.value = "entities";
+      this._config.yesterday_mode = "entities";
+      this._toggleHelperSection();
+      this._updateConfig();
+
+      this._logSetup("Fertig! Alle Entitaeten und Automationen eingerichtet.", "success");
+      this._logSetup("Card-Konfiguration wurde automatisch gesetzt.", "success");
+    } else {
+      this._logSetup("Einrichtung mit Fehlern abgeschlossen. Bitte Fehler oben pruefen.", "error");
+    }
+
+    btn.disabled = false;
+    btn.textContent = "Backend automatisch einrichten";
   }
 }
 

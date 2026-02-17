@@ -1308,8 +1308,8 @@ class PersonenzaehlungCard extends HTMLElement {
             <div class="door-detail-row">
               <span class="door-detail-name">${door.name || "Tuer " + (i + 1)}</span>
               <span class="door-detail-values">
-                <span style="color:${c.color_kommen}">K: <span data-id="door-${i}-k">0</span></span>
-                <span style="color:${c.color_gehen}">G: <span data-id="door-${i}-g">0</span></span>
+                <span style="color:${c.color_kommen}"><svg viewBox="0 0 24 24" fill="${c.color_kommen}" width="16" height="16" style="vertical-align:middle;margin-right:2px;"><path d="M13.5 5.5c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zM9.8 8.9L7 23h2.1l1.8-8 2.1 2v6h2v-7.5l-2.1-2 .6-3C14.8 12 16.8 13 19 13v-2c-1.9 0-3.5-1-4.3-2.4l-1-1.6c-.4-.6-1-1-1.7-1-.3 0-.5.1-.8.1L6 8.3V13h2V9.6l1.8-.7"/></svg> <span data-id="door-${i}-k">0</span></span>
+                <span style="color:${c.color_gehen}"><svg viewBox="0 0 24 24" fill="${c.color_gehen}" width="16" height="16" style="vertical-align:middle;margin-right:2px;"><path d="M13.5 5.5c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zM9.8 8.9L7 23h2.1l1.8-8 2.1 2v6h2v-7.5l-2.1-2 .6-3C14.8 12 16.8 13 19 13v-2c-1.9 0-3.5-1-4.3-2.4l-1-1.6c-.4-.6-1-1-1.7-1-.3 0-.5.1-.8.1L6 8.3V13h2V9.6l1.8-.7"/></svg> <span data-id="door-${i}-g">0</span></span>
               </span>
             </div>`
             )
@@ -1427,8 +1427,11 @@ class PersonenzaehlungCard extends HTMLElement {
           font-size: 13px; font-weight: 500; opacity: 0.8;
         }
         .door-detail-values {
-          display: flex; gap: 16px;
+          display: flex; gap: 16px; align-items: center;
           font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums;
+        }
+        .door-detail-values svg {
+          width: 18px; height: 18px; vertical-align: middle;
         }
         /* Yesterday */
         .yesterday-section {
